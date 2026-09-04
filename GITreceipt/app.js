@@ -32,7 +32,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   try {
     const connected = await connectFirebase({ alert: false });
     if (connected) {
-      await pullFromCloud();
+      await syncBothWays();
       loadSettings();
       loadEstates();
     }
@@ -79,6 +79,7 @@ function saveSettings() {
   settings.footer = document.getElementById("footer").value.trim();
   settings.signatoryName = document.getElementById("signatoryName").value.trim();
   settings.signatoryTitle = document.getElementById("signatoryTitle").value.trim();
+  settings.updatedAt = Date.now();
 
   localStorage.setItem("businessSettings", JSON.stringify(settings));
   if (typeof syncSettingsToCloud === "function") {
@@ -133,6 +134,7 @@ function loadSettings() {
 // Categories Management
 function persistEstates() {
   localStorage.setItem("estates", JSON.stringify(estates));
+  localStorage.setItem("estatesUpdatedAt", String(Date.now()));
   if (typeof syncEstatesToCloud === "function") {
     syncEstatesToCloud(estates).catch((err) => console.warn("Cloud sync failed", err));
   }
@@ -1813,8 +1815,12 @@ async function importBackup(e) {
       // Import settings
       if (data.settings && typeof data.settings === "object" && Object.keys(data.settings).length > 0) {
         if (confirm("Restore business settings from backup? (This will overwrite current settings)")) {
-          localStorage.setItem("businessSettings", JSON.stringify(data.settings));
+          settings = { ...settings, ...data.settings, updatedAt: Date.now() };
+          localStorage.setItem("businessSettings", JSON.stringify(settings));
           loadSettings();
+          if (typeof syncSettingsToCloud === "function") {
+            syncSettingsToCloud(settings).catch((err) => console.warn("Cloud sync failed", err));
+          }
         }
       }
     } else {

@@ -68,6 +68,9 @@ function saveReceiptToIndexedDB(receipt){
 }
 
 function saveReceipt(receipt){
+    if (receipt) {
+        receipt.updatedAt = Date.now();
+    }
 
     return saveReceiptToIndexedDB(receipt).then(() => {
         if (typeof syncReceiptToCloud === "function") {

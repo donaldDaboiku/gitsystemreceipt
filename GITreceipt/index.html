@@ -374,14 +374,15 @@
           </p>
           <p style="font-size: 12px; color: #64748b; margin-top: 0; margin-bottom: 16px;">
             Firestore rules example:
-            allow read, write on <code>workspaces/{id}/{document=**}</code> when <code>id.size() &gt;= 8</code>.
+            <code>allow read, write: if id.size() &gt;= 8 &amp;&amp; id.size() &lt;= 64 &amp;&amp; id.matches('^[A-Za-z0-9_-]+$');</code>
+            on <code>workspaces/{id}/{document=**}</code>.
           </p>
 
           <label>Firebase config</label>
-          <textarea id="firebaseConfigJson" rows="8" placeholder='{"apiKey":"...","authDomain":"...","projectId":"...","storageBucket":"...","messagingSenderId":"...","appId":"..."}'></textarea>
+          <textarea id="firebaseConfigJson" rows="8" spellcheck="false" autocomplete="off" placeholder='{"apiKey":"...","authDomain":"...","projectId":"...","storageBucket":"...","messagingSenderId":"...","appId":"..."}'></textarea>
 
           <label>Workspace ID</label>
-          <input type="text" id="firebaseWorkspaceId" placeholder="At least 8 characters (keep this private)" />
+          <input type="text" id="firebaseWorkspaceId" minlength="8" maxlength="64" pattern="[A-Za-z0-9_-]{8,64}" autocomplete="off" placeholder="8-64 letters, numbers, hyphen, or underscore" />
 
           <p id="firebaseStatus" class="firebase-status">Not connected</p>
 
