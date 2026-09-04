@@ -49,9 +49,9 @@ function initDB() {
     });
 }
 
-function saveReceipt(receipt){
+function saveReceiptToIndexedDB(receipt){
 
-    return new Promise((resolve)=>{
+    return new Promise((resolve, reject)=>{
 
         const tx =
             db.transaction(
@@ -63,6 +63,18 @@ function saveReceipt(receipt){
             .put(receipt);
 
         tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+function saveReceipt(receipt){
+
+    return saveReceiptToIndexedDB(receipt).then(() => {
+        if (typeof syncReceiptToCloud === "function") {
+            return Promise.resolve(syncReceiptToCloud(receipt)).catch((err) => {
+                console.warn("Cloud sync failed", err);
+            });
+        }
     });
 }
 
@@ -104,7 +116,7 @@ function getAllReceipts(){
     });
 }
 
-function deleteReceipt(receiptNo){
+function deleteReceiptFromIndexedDB(receiptNo){
 
     return new Promise((resolve)=>{
 
@@ -119,5 +131,16 @@ function deleteReceipt(receiptNo){
 
         tx.oncomplete =
             () => resolve();
+    });
+}
+
+function deleteReceipt(receiptNo){
+
+    return deleteReceiptFromIndexedDB(receiptNo).then(() => {
+        if (typeof deleteReceiptFromCloud === "function") {
+            return Promise.resolve(deleteReceiptFromCloud(receiptNo)).catch((err) => {
+                console.warn("Cloud delete failed", err);
+            });
+        }
     });
 }

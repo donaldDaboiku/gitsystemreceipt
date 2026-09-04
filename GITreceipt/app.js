@@ -16,32 +16,35 @@ let estates = [];
 let editingEstateId = null;
 
 document.addEventListener("DOMContentLoaded", async () => {
-  // 1. Initialize theme
   initTheme();
 
-  // 2. Initialize database
   try {
     await initDB();
   } catch (error) {
     console.error("Database initialization failed:", error);
   }
 
-  // 3. Load configuration state
   loadSettings();
   loadEstates();
+  loadFirebaseSyncSettings();
+  fillFirebaseSettingsForm();
 
-  // 4. Populate views
+  try {
+    const connected = await connectFirebase({ alert: false });
+    if (connected) {
+      await pullFromCloud();
+      loadSettings();
+      loadEstates();
+    }
+  } catch (error) {
+    console.warn("Firebase startup sync skipped:", error);
+  }
+
   loadDashboard();
   loadHistory();
-
-  // 5. Register application event listeners
   registerEvents();
-
-  // 6. Register progressive web app service worker
   registerSW();
   initInstallPrompt();
-
-  // 7. Show default section
   showSection("dashboard");
 });
 
@@ -78,6 +81,9 @@ function saveSettings() {
   settings.signatoryTitle = document.getElementById("signatoryTitle").value.trim();
 
   localStorage.setItem("businessSettings", JSON.stringify(settings));
+  if (typeof syncSettingsToCloud === "function") {
+    syncSettingsToCloud(settings).catch((err) => console.warn("Cloud sync failed", err));
+  }
   alert("Settings Saved Successfully!");
 
   // Refresh views to reflect currency/prefix updates
@@ -125,6 +131,13 @@ function loadSettings() {
 }
 
 // Categories Management
+function persistEstates() {
+  localStorage.setItem("estates", JSON.stringify(estates));
+  if (typeof syncEstatesToCloud === "function") {
+    syncEstatesToCloud(estates).catch((err) => console.warn("Cloud sync failed", err));
+  }
+}
+
 function saveEstate(estate) {
   estates.push({
     id: Date.now(),
@@ -132,7 +145,7 @@ function saveEstate(estate) {
     location: estate.location || "",
     units: estate.units || [],
   });
-  localStorage.setItem("estates", JSON.stringify(estates));
+  persistEstates();
   updateEstateDropdown();
 }
 
@@ -154,7 +167,7 @@ function loadEstates() {
 function deleteEstate(id) {
   if (!confirm("Are you sure you want to delete this category? Past receipts will keep their details, but this category will be removed from selection.")) return;
   estates = estates.filter((e) => e.id !== id);
-  localStorage.setItem("estates", JSON.stringify(estates));
+  persistEstates();
   
   // If we are currently editing the estate being deleted, cancel edit mode
   if (editingEstateId === id) {
@@ -229,6 +242,7 @@ function renderUnitOptions(estate) {
     placeholder.className = "unit-placeholder";
     placeholder.textContent = "Select a category first";
     container.appendChild(placeholder);
+    updateItemAmountsTotal();
     return;
   }
 
@@ -237,13 +251,17 @@ function renderUnitOptions(estate) {
     placeholder.className = "unit-placeholder";
     placeholder.textContent = "No items in this category";
     container.appendChild(placeholder);
+    updateItemAmountsTotal();
     return;
   }
 
   units.forEach((unit, index) => {
     const id = `unit-item-${index}`;
+    const row = document.createElement("div");
+    row.className = "unit-option";
+
     const label = document.createElement("label");
-    label.className = "checkbox-row unit-option";
+    label.className = "checkbox-row unit-option-label";
     label.htmlFor = id;
 
     const input = document.createElement("input");
@@ -255,18 +273,89 @@ function renderUnitOptions(estate) {
     const span = document.createElement("span");
     span.textContent = unit;
 
+    const amountInput = document.createElement("input");
+    amountInput.type = "number";
+    amountInput.className = "unit-amount";
+    amountInput.min = "0";
+    amountInput.step = "0.01";
+    amountInput.placeholder = "Amount";
+    amountInput.disabled = true;
+    amountInput.setAttribute("aria-label", `${unit} amount`);
+
     label.appendChild(input);
     label.appendChild(span);
-    container.appendChild(label);
+    row.appendChild(label);
+    row.appendChild(amountInput);
+    container.appendChild(row);
   });
+
+  updateItemAmountsTotal();
 }
 
 function getSelectedUnits() {
+  return getSelectedLineItems().map((item) => item.name);
+}
+
+function getSelectedLineItems() {
   const container = document.getElementById("unit");
   if (!container) return [];
-  return Array.from(container.querySelectorAll('input[type="checkbox"]:checked'))
-    .map((cb) => cb.value.trim())
-    .filter(Boolean);
+  const items = [];
+  container.querySelectorAll(".unit-option").forEach((row) => {
+    const cb = row.querySelector('input[type="checkbox"]');
+    const amountInput = row.querySelector(".unit-amount");
+    if (!cb || !cb.checked) return;
+    const name = cb.value.trim();
+    if (!name) return;
+    items.push({ name, amount: Number(amountInput?.value || 0) });
+  });
+  return items;
+}
+
+function sumLineItems(items) {
+  return (items || []).reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+}
+
+function updateItemAmountsTotal() {
+  const container = document.getElementById("unit");
+  if (container) {
+    container.querySelectorAll(".unit-option").forEach((row) => {
+      const cb = row.querySelector('input[type="checkbox"]');
+      const amountInput = row.querySelector(".unit-amount");
+      if (!cb || !amountInput) return;
+      amountInput.disabled = !cb.checked;
+      if (!cb.checked) amountInput.value = "";
+    });
+  }
+
+  const items = getSelectedLineItems();
+  const sum = sumLineItems(items);
+  const totalEl = document.getElementById("itemsTotal");
+  if (totalEl) {
+    totalEl.textContent = items.length ? `Items total: ${formatMoney(sum)}` : "";
+  }
+
+  const amountInput = document.getElementById("amount");
+  const totalAmountInput = document.getElementById("totalAmount");
+  const isPart = document.getElementById("isPartPayment")?.checked;
+
+  if (items.length) {
+    if (isPart) {
+      if (totalAmountInput) {
+        totalAmountInput.value = sum ? String(sum) : "";
+        totalAmountInput.readOnly = true;
+      }
+      if (amountInput) amountInput.readOnly = false;
+    } else if (amountInput) {
+      amountInput.value = sum ? String(sum) : "";
+      amountInput.readOnly = true;
+      if (totalAmountInput) totalAmountInput.readOnly = false;
+    }
+  } else {
+    if (amountInput) amountInput.readOnly = false;
+    if (totalAmountInput) totalAmountInput.readOnly = false;
+  }
+
+  updatePartPaymentBalance();
 }
 
 // Global Event Registration
@@ -361,6 +450,21 @@ function registerEvents() {
     });
   }
 
+  const unitContainer = document.getElementById("unit");
+  if (unitContainer) {
+    unitContainer.addEventListener("change", updateItemAmountsTotal);
+    unitContainer.addEventListener("input", updateItemAmountsTotal);
+  }
+
+  const saveFirebaseBtn = document.getElementById("saveFirebaseBtn");
+  if (saveFirebaseBtn) {
+    saveFirebaseBtn.addEventListener("click", saveAndConnectFirebase);
+  }
+  const syncFirebaseBtn = document.getElementById("syncFirebaseBtn");
+  if (syncFirebaseBtn) {
+    syncFirebaseBtn.addEventListener("click", syncNow);
+  }
+
   const paymentTypeSelect = document.getElementById("paymentType");
   if (paymentTypeSelect) {
     paymentTypeSelect.addEventListener("change", togglePaymentPeriodFields);
@@ -408,7 +512,7 @@ function registerEvents() {
           estate.units = units;
         }
 
-        localStorage.setItem("estates", JSON.stringify(estates));
+        persistEstates();
         editingEstateId = null;
         document.getElementById("addEstateBtn").textContent = "Add Category";
         
@@ -424,7 +528,7 @@ function registerEvents() {
           location: location,
           units: units,
         });
-        localStorage.setItem("estates", JSON.stringify(estates));
+        persistEstates();
         alert("Category added successfully!");
       }
 
@@ -599,10 +703,20 @@ function handleHistoryClick(e) {
 async function createReceipt(e) {
   e.preventDefault();
 
+  const lineItems = getSelectedLineItems();
+  if (lineItems.some((item) => !(item.amount > 0))) {
+    alert("Enter an amount for each selected item");
+    return;
+  }
+
+  const itemsTotal = sumLineItems(lineItems);
   const isPartPayment = document.getElementById("isPartPayment")?.checked || false;
-  const amount = Number(document.getElementById("amount").value);
+  let amount = Number(document.getElementById("amount").value);
+  if (lineItems.length && !isPartPayment) {
+    amount = itemsTotal;
+  }
   const totalAmount = isPartPayment
-    ? Number(document.getElementById("totalAmount")?.value || 0)
+    ? (lineItems.length ? itemsTotal : Number(document.getElementById("totalAmount")?.value || 0))
     : amount;
 
   if (amount <= 0) {
@@ -660,7 +774,8 @@ async function createReceipt(e) {
     phone: document.getElementById("payerPhone").value.trim(),
     estateId: selectedEstateId ? Number(selectedEstateId) : null,
     estateName: estateName,
-    unit: getSelectedUnits().join(", "),
+    unit: lineItems.map((item) => item.name).join(", "),
+    items: lineItems,
     paymentType: paymentType,
     rentPeriodStart: hasPeriod ? rentPeriodStart : "",
     rentPeriodEnd: hasPeriod ? rentPeriodEnd : "",
@@ -686,6 +801,7 @@ async function createReceipt(e) {
   
   document.getElementById("receiptForm").reset();
   renderUnitOptions(null);
+  updateItemAmountsTotal();
   togglePaymentPeriodFields();
   togglePartPaymentFields();
   
@@ -706,11 +822,45 @@ function paymentTypeHasPeriod(paymentType) {
 }
 
 function formatCategoryItem(receipt) {
-  let text = receipt.unit || "N/A";
+  const itemNames = Array.isArray(receipt.items) && receipt.items.length
+    ? receipt.items.map((item) => item.name).join(", ")
+    : receipt.unit;
+  let text = itemNames || "N/A";
   if (receipt.estateName) {
-    text = `${receipt.estateName} - ${receipt.unit || "N/A"}`;
+    text = `${receipt.estateName} - ${itemNames || "N/A"}`;
   }
   return text;
+}
+
+function buildItemsReceiptHtml(receipt, currencySymbol) {
+  const items = Array.isArray(receipt.items) ? receipt.items : [];
+  if (!items.length) {
+    return `
+            <div class="receipt-row">
+                <label>Category / Item</label>
+                <span>${escapeHtml(formatCategoryItem(receipt))}</span>
+            </div>`;
+  }
+
+  const categoryRow = receipt.estateName
+    ? `
+            <div class="receipt-row">
+                <label>Category</label>
+                <span>${escapeHtml(receipt.estateName)}</span>
+            </div>`
+    : "";
+
+  const rows = items.map((item) => `
+                <div class="receipt-item-row">
+                  <span>${escapeHtml(item.name)}</span>
+                  <span>${escapeHtml(formatMoney(item.amount, currencySymbol))}</span>
+                </div>`).join("");
+
+  return `${categoryRow}
+            <div class="receipt-row receipt-items-block">
+                <label>Items</label>
+                <div class="receipt-items-list">${rows}</div>
+            </div>`;
 }
 
 function togglePartPaymentFields() {
@@ -735,6 +885,7 @@ function togglePartPaymentFields() {
   }
 
   updatePartPaymentBalance();
+  updateItemAmountsTotal();
 }
 
 function updatePartPaymentBalance() {
@@ -941,7 +1092,15 @@ function buildReceiptShareText(receipt) {
   ];
 
   if (receipt.phone) lines.push(`Phone: ${receipt.phone}`);
-  lines.push(`Category / Item: ${formatCategoryItem(receipt)}`);
+  if (Array.isArray(receipt.items) && receipt.items.length) {
+    if (receipt.estateName) lines.push(`Category: ${receipt.estateName}`);
+    lines.push("Items:");
+    receipt.items.forEach((item) => {
+      lines.push(`  - ${item.name}: ${formatMoney(item.amount, currencySymbol)}`);
+    });
+  } else {
+    lines.push(`Category / Item: ${formatCategoryItem(receipt)}`);
+  }
   lines.push(`Payment For: ${receipt.paymentType}`);
 
   if (receipt.rentPeriodStart || receipt.rentPeriodEnd) {
@@ -1166,9 +1325,6 @@ function showReceipt(r, containerId = "receiptPreview") {
     ? `<p class="receipt-footer-message">${escapeHtml(settings.footer)}</p>`
     : `<p class="receipt-footer-message">Thank you for your payment!</p>`;
 
-  // Format category / item string
-  const categoryItemStr = escapeHtml(formatCategoryItem(r));
-
   preview.innerHTML = `
     <div class="receipt-card">
         <div class="receipt-card-header">
@@ -1195,10 +1351,7 @@ function showReceipt(r, containerId = "receiptPreview") {
             </div>
             ` : ""}
             
-            <div class="receipt-row">
-                <label>Category / Item</label>
-                <span>${categoryItemStr}</span>
-            </div>
+            ${buildItemsReceiptHtml(r, currencySymbol)}
             
             <div class="receipt-row">
                 <label>Payment For</label>
@@ -1651,7 +1804,8 @@ async function importBackup(e) {
       // Import estates
       if (data.estates && Array.isArray(data.estates) && data.estates.length > 0) {
         if (confirm(`Restore ${data.estates.length} categories from backup? (This will overwrite current categories)`)) {
-          localStorage.setItem("estates", JSON.stringify(data.estates));
+          estates = data.estates;
+          persistEstates();
           loadEstates();
         }
       }

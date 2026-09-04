@@ -1,4 +1,4 @@
-const CACHE = "receipt-v9";
+const CACHE = "receipt-v10";
 
 const FILES = [
   "./",
@@ -6,6 +6,7 @@ const FILES = [
   "./style.css",
   "./app.js",
   "./db.js",
+  "./firebase-sync.js",
   "./manifest.json",
   "./vendor/html2canvas.min.js",
   "./vendor/jspdf.umd.min.js",

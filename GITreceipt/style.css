@@ -487,19 +487,115 @@ textarea {
   border-radius: var(--radius-md);
   background: var(--bg-card);
   padding: 4px 12px;
-  max-height: 220px;
+  max-height: 280px;
   overflow-y: auto;
 }
 
 .unit-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin: 0;
-  padding: 10px 0;
+  padding: 8px 0;
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .unit-option + .unit-option {
   border-top: 1px solid var(--border-color);
+}
+
+.unit-option-label {
+  flex: 1;
+  margin: 0;
+  min-width: 0;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.unit-amount {
+  width: 120px;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 8px 10px;
+}
+
+.unit-amount:disabled {
+  opacity: 0.45;
+}
+
+.items-total {
+  margin: 8px 0 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+input[readonly] {
+  background: var(--bg-app);
+  cursor: default;
+}
+
+.firebase-status {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 4px 0 12px;
+  color: var(--text-secondary);
+}
+
+.firebase-status.ok {
+  color: #16a34a;
+}
+
+.firebase-status.error {
+  color: #dc2626;
+}
+
+.firebase-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.firebase-actions button {
+  flex: 1;
+  min-width: 160px;
+}
+
+.secondary-btn {
+  background: #64748b;
+}
+
+.receipt-items-block {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.receipt-items-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.receipt-item-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.receipt-items-block .receipt-item-row span {
+  flex: 0 1 auto;
+  text-align: left;
+}
+
+.receipt-items-block .receipt-item-row span:last-child {
+  margin-left: auto;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .unit-placeholder {
