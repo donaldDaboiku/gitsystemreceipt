@@ -74,7 +74,7 @@ function saveReceipt(receipt){
 
     return saveReceiptToIndexedDB(receipt).then(() => {
         if (typeof syncReceiptToCloud === "function") {
-            return Promise.resolve(syncReceiptToCloud(receipt)).catch((err) => {
+            Promise.resolve(syncReceiptToCloud(receipt)).catch((err) => {
                 console.warn("Cloud sync failed", err);
             });
         }
@@ -141,7 +141,7 @@ function deleteReceipt(receiptNo){
 
     return deleteReceiptFromIndexedDB(receiptNo).then(() => {
         if (typeof deleteReceiptFromCloud === "function") {
-            return Promise.resolve(deleteReceiptFromCloud(receiptNo)).catch((err) => {
+            Promise.resolve(deleteReceiptFromCloud(receiptNo)).catch((err) => {
                 console.warn("Cloud delete failed", err);
             });
         }
