@@ -1,0 +1,71 @@
+rules_version = '2';
+// Change owner@example.com to your lowercase admin email.
+// It must match APP_ADMIN_EMAIL in GITreceipt/firebase-config.js.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && (
+        request.auth.token.email == "owner@example.com"
+        || exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function account() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isActive() {
+      return account().exists && (
+        account().data.status == "free"
+        || (
+          account().data.status == "subscriber"
+          && account().data.paidUntil > request.time.toMillis()
+        )
+      );
+    }
+
+    match /users/{userId} {
+      allow get: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.status == "pending"
+        && request.resource.data.createdAt is int
+        && request.resource.data.keys().hasOnly(["email", "status", "createdAt"]);
+      allow update: if isAdmin()
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.status in ["pending", "free", "subscriber"];
+      allow delete: if false;
+    }
+
+    match /config/pricing {
+      allow read: if signedIn();
+      allow create, update: if isAdmin()
+        && request.resource.data.amount is number
+        && request.resource.data.amount >= 100
+        && request.resource.data.periodDays is int
+        && request.resource.data.periodDays >= 1
+        && request.resource.data.periodDays <= 366;
+      allow delete: if false;
+    }
+
+    match /payments/{reference} {
+      allow read, write: if false;
+    }
+
+    match /admins/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    match /workspaces/{userId}/{document=**} {
+      allow read, write: if signedIn() && request.auth.uid == userId && isActive();
+    }
+  }
+}

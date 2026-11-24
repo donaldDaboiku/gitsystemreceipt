@@ -4,6 +4,8 @@ const {
   mergeReceiptFromCloud,
   pickListByUpdatedAt,
   mergeSettingsFromCloud,
+  mergeEstateLists,
+  applyEstateDeletions,
 } = require("./firebase-sync.js");
 
 let failed = 0;
@@ -67,6 +69,28 @@ check(
     { businessName: "New", logo: "cloud-logo", updatedAt: 9 },
   ),
   { businessName: "New", logo: "local-logo", updatedAt: 9, signature: "" },
+);
+
+check(
+  "keeps the newer copy of a category and unions the rest",
+  mergeEstateLists(
+    [{ id: 1, name: "Local", updatedAt: 5 }, { id: 3, name: "Only local", updatedAt: 1 }],
+    [{ id: 1, name: "Cloud", updatedAt: 2 }, { id: 2, name: "Only cloud", updatedAt: 1 }],
+  ),
+  [
+    { id: 1, name: "Local", updatedAt: 5 },
+    { id: 2, name: "Only cloud", updatedAt: 1 },
+    { id: 3, name: "Only local", updatedAt: 1 },
+  ],
+);
+
+check(
+  "drops a category deleted after it was edited",
+  applyEstateDeletions(
+    [{ id: 1, name: "A", updatedAt: 5 }, { id: 2, name: "B", updatedAt: 9 }],
+    { 1: 8 },
+  ),
+  [{ id: 2, name: "B", updatedAt: 9 }],
 );
 
 if (failed) {

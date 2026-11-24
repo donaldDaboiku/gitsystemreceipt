@@ -5,6 +5,7 @@ let firebaseSync = {
   enabled: false,
   configJson: "",
   workspaceId: "",
+  email: "",
 };
 
 let firestoreDb = null;
@@ -24,15 +25,19 @@ function saveFirebaseSyncSettings() {
     enabled: firebaseSync.enabled,
     configJson: firebaseSync.configJson,
     workspaceId: firebaseSync.workspaceId,
+    email: firebaseSync.email || "",
   }));
 }
 
 function fillFirebaseSettingsForm() {
   const configEl = document.getElementById("firebaseConfigJson");
-  const workspaceEl = document.getElementById("firebaseWorkspaceId");
+  const emailEl = document.getElementById("firebaseEmail");
   if (configEl) configEl.value = firebaseSync.configJson || "";
-  if (workspaceEl) workspaceEl.value = firebaseSync.workspaceId || "";
-  setFirebaseStatus(firestoreDb ? "Connected" : "Not connected", firestoreDb ? "ok" : "");
+  if (emailEl && !emailEl.value) emailEl.value = firebaseSync.email || "";
+  setFirebaseStatus(
+    firestoreDb ? `Signed in as ${firebaseSync.email || "your account"}` : "Not signed in",
+    firestoreDb ? "ok" : "",
+  );
 }
 
 function setFirebaseStatus(message, kind) {
@@ -115,6 +120,79 @@ function pickListByUpdatedAt(localList, localAt, cloudList, cloudAt) {
   return local;
 }
 
+const RECEIPT_DELETIONS_KEY = "receiptDeletions";
+const ESTATE_DELETIONS_KEY = "estateDeletions";
+
+function loadJsonMap(key) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function loadDeletions() {
+  return loadJsonMap(RECEIPT_DELETIONS_KEY);
+}
+
+function saveDeletions(map) {
+  localStorage.setItem(RECEIPT_DELETIONS_KEY, JSON.stringify(map));
+}
+
+function recordLocalDeletion(receiptNo) {
+  if (!receiptNo) return;
+  const map = loadDeletions();
+  map[String(receiptNo)] = Date.now();
+  saveDeletions(map);
+}
+
+function loadEstateDeletions() {
+  return loadJsonMap(ESTATE_DELETIONS_KEY);
+}
+
+function recordEstateDeletion(id) {
+  if (id == null) return;
+  const map = loadEstateDeletions();
+  map[String(id)] = Date.now();
+  localStorage.setItem(ESTATE_DELETIONS_KEY, JSON.stringify(map));
+}
+
+function mergeDeletionMaps(left, right) {
+  const out = { ...(left || {}) };
+  for (const [key, value] of Object.entries(right || {})) {
+    out[key] = Math.max(Number(out[key]) || 0, Number(value) || 0);
+  }
+  return out;
+}
+
+function preferEstate(current, incoming) {
+  if (!current) return incoming;
+  if (isNewerThan(incoming.updatedAt, current.updatedAt)) return incoming;
+  if (isNewerThan(current.updatedAt, incoming.updatedAt)) return current;
+  return incoming;
+}
+
+function mergeEstateLists(localList, cloudList) {
+  const map = new Map();
+  for (const item of cloudList || []) {
+    if (item && item.id != null) map.set(item.id, item);
+  }
+  for (const item of localList || []) {
+    if (item && item.id != null) map.set(item.id, preferEstate(map.get(item.id), item));
+  }
+  return [...map.values()];
+}
+
+function applyEstateDeletions(list, deletions) {
+  return (list || []).filter((item) => {
+    if (!item || item.id == null) return false;
+    const deletedAt = Number((deletions || {})[String(item.id)] || 0);
+    if (!deletedAt) return true;
+    return isNewerThan(item.updatedAt, deletedAt);
+  });
+}
+
 function mergeSettingsFromCloud(local, cloud) {
   const base = local && typeof local === "object" ? local : {};
   if (!cloud || typeof cloud !== "object") return base;
@@ -163,42 +241,67 @@ async function ensureFirebaseApp(config) {
 
 async function connectFirebase(options = {}) {
   const showAlerts = options.alert !== false;
+  const mode = options.mode;
   loadFirebaseSyncSettings();
 
-  if (!firebaseSync.configJson || !firebaseSync.workspaceId) {
+  if (typeof firebaseProjectReady !== "function" || !firebaseProjectReady()) {
     firestoreDb = null;
-    setFirebaseStatus("Not connected", "");
+    setFirebaseStatus("Cloud project is not configured", "error");
     return false;
   }
 
-  try {
-    firebaseSync.workspaceId = sanitizeWorkspaceId(firebaseSync.workspaceId);
-  } catch (error) {
-    firestoreDb = null;
-    setFirebaseStatus(error.message, "error");
-    if (showAlerts) alert(error.message);
-    return false;
-  }
-
-  if (typeof firebase === "undefined") {
+  if (typeof firebase === "undefined" || typeof firebase.auth !== "function") {
     firestoreDb = null;
     setFirebaseStatus("Firebase SDK not loaded (need internet once to download it)", "error");
     return false;
   }
 
   try {
-    const config = parseFirebaseConfig(firebaseSync.configJson);
-    await ensureFirebaseApp(config);
-    firestoreDb = firebase.firestore();
+    await ensureFirebaseApp(FIREBASE_CONFIG);
+    const auth = firebase.auth();
+    let user = null;
+
+    if (mode === "signin" || mode === "signup") {
+      const email = String(options.email || "").trim();
+      const password = String(options.password || "");
+      if (!email || password.length < 6) {
+        throw new Error("Use an email and a password of at least 6 characters");
+      }
+      const cred = mode === "signup"
+        ? await auth.createUserWithEmailAndPassword(email, password)
+        : await auth.signInWithEmailAndPassword(email, password);
+      user = cred.user;
+    } else {
+      user = await new Promise((resolve) => {
+        const unsub = auth.onAuthStateChanged((next) => {
+          unsub();
+          resolve(next || null);
+        });
+      });
+    }
+
+    if (!user) {
+      firestoreDb = null;
+      firebaseSync.enabled = false;
+      saveFirebaseSyncSettings();
+      setFirebaseStatus("Not signed in", "");
+      if (showAlerts) alert("Sign in before syncing.");
+      return false;
+    }
+
+    firebaseSync.workspaceId = sanitizeWorkspaceId(user.uid);
+    firebaseSync.email = user.email || "";
     firebaseSync.enabled = true;
     saveFirebaseSyncSettings();
-    setFirebaseStatus(`Connected to ${config.projectId}`, "ok");
+    firestoreDb = firebase.firestore();
+    setFirebaseStatus(`Signed in as ${firebaseSync.email || "your account"}`, "ok");
     return true;
   } catch (error) {
     firestoreDb = null;
     firebaseSync.enabled = false;
     setFirebaseStatus(error.message || "Could not connect", "error");
-    if (showAlerts) alert("Firebase connect failed: " + error.message);
+    if (mode) throw error;
+    if (showAlerts) alert("Firebase sign-in failed: " + error.message);
     return false;
   }
 }
@@ -210,6 +313,11 @@ async function syncReceiptToCloud(receipt) {
 
 async function deleteReceiptFromCloud(receiptNo) {
   if (!firestoreDb || !firebaseSync.enabled || !receiptNo) return;
+  const deletedAt = Number(loadDeletions()[String(receiptNo)] || Date.now());
+  await workspaceDoc().collection("deletions").doc(String(receiptNo)).set({
+    receiptNo: String(receiptNo),
+    deletedAt,
+  });
   await workspaceDoc().collection("receipts").doc(String(receiptNo)).delete();
 }
 
@@ -218,6 +326,7 @@ async function syncEstatesToCloud(estatesList) {
   const updatedAt = Number(localStorage.getItem(ESTATES_UPDATED_AT_KEY)) || Date.now();
   await workspaceDoc().collection("meta").doc("estates").set({
     list: toFirestoreValue(estatesList || []),
+    deletions: toFirestoreValue(loadEstateDeletions()),
     updatedAt,
   });
 }
@@ -234,29 +343,59 @@ async function syncSettingsToCloud(settingsObj) {
 async function pullFromCloud() {
   if (!firestoreDb || !firebaseSync.enabled) return { receipts: 0 };
 
+  const delSnap = await workspaceDoc().collection("deletions").get();
+  const deletions = loadDeletions();
+  delSnap.forEach((doc) => {
+    const data = doc.data() || {};
+    const receiptNo = data.receiptNo || doc.id;
+    if (!receiptNo) return;
+    deletions[String(receiptNo)] = Math.max(
+      Number(deletions[String(receiptNo)]) || 0,
+      Number(data.deletedAt) || 0,
+    );
+  });
+  saveDeletions(deletions);
+
   const receiptsSnap = await workspaceDoc().collection("receipts").get();
   let receipts = 0;
   for (const doc of receiptsSnap.docs) {
     const data = doc.data();
     if (!data?.receiptNo) continue;
+    const deletedAt = Number(deletions[String(data.receiptNo)] || 0);
     const local = await getReceipt(data.receiptNo);
+    const blocked = deletedAt && deletedAt >= (Number(data.updatedAt) || 0)
+      && (!local || deletedAt >= (Number(local.updatedAt) || 0));
+    if (blocked) {
+      if (local) await deleteReceiptFromIndexedDB(data.receiptNo);
+      continue;
+    }
     const merged = mergeReceiptFromCloud(local, data);
-    if (merged !== local) {
+    if (merged && merged !== local) {
       await saveReceiptToIndexedDB(merged);
     }
     receipts += 1;
+  }
+
+  for (const [receiptNo, deletedAt] of Object.entries(deletions)) {
+    const local = await getReceipt(receiptNo);
+    if (local && Number(deletedAt) >= (Number(local.updatedAt) || 0)) {
+      await deleteReceiptFromIndexedDB(receiptNo);
+    }
   }
 
   const estatesSnap = await workspaceDoc().collection("meta").doc("estates").get();
   if (estatesSnap.exists) {
     const cloud = estatesSnap.data() || {};
     const localList = JSON.parse(localStorage.getItem("estates") || "[]");
-    const localAt = Number(localStorage.getItem(ESTATES_UPDATED_AT_KEY) || 0);
-    const next = pickListByUpdatedAt(localList, localAt, cloud.list, cloud.updatedAt);
+    const deletionsMap = mergeDeletionMaps(loadEstateDeletions(), cloud.deletions || {});
+    localStorage.setItem(ESTATE_DELETIONS_KEY, JSON.stringify(deletionsMap));
+    const next = applyEstateDeletions(mergeEstateLists(localList, cloud.list), deletionsMap);
     localStorage.setItem("estates", JSON.stringify(next));
-    if (isNewerThan(cloud.updatedAt, localAt)) {
-      localStorage.setItem(ESTATES_UPDATED_AT_KEY, String(cloud.updatedAt));
-    }
+    const newest = Math.max(
+      Number(localStorage.getItem(ESTATES_UPDATED_AT_KEY) || 0),
+      Number(cloud.updatedAt) || 0,
+    );
+    localStorage.setItem(ESTATES_UPDATED_AT_KEY, String(newest || Date.now()));
   }
 
   const settingsSnap = await workspaceDoc().collection("meta").doc("settings").get();
@@ -271,15 +410,26 @@ async function pullFromCloud() {
 
 async function pushAllToCloud() {
   if (!firestoreDb || !firebaseSync.enabled) return { receipts: 0 };
+  const deletions = loadDeletions();
+  for (const [receiptNo, deletedAt] of Object.entries(deletions)) {
+    await workspaceDoc().collection("deletions").doc(String(receiptNo)).set({
+      receiptNo: String(receiptNo),
+      deletedAt,
+    });
+    await workspaceDoc().collection("receipts").doc(String(receiptNo)).delete();
+  }
   const receipts = await getAllReceipts();
+  let pushed = 0;
   for (const receipt of receipts) {
+    if (deletions[String(receipt.receiptNo)]) continue;
     await syncReceiptToCloud(receipt);
+    pushed += 1;
   }
   const savedEstates = JSON.parse(localStorage.getItem("estates") || "[]");
   await syncEstatesToCloud(savedEstates);
   const savedSettings = JSON.parse(localStorage.getItem("businessSettings") || "{}");
   await syncSettingsToCloud(savedSettings);
-  return { receipts: receipts.length };
+  return { receipts: pushed };
 }
 
 async function syncBothWays() {
@@ -295,25 +445,42 @@ function refreshViewsAfterSync() {
   if (typeof loadDashboard === "function") loadDashboard();
 }
 
-async function saveAndConnectFirebase() {
+async function saveAndConnectFirebase(mode) {
   firebaseSync.configJson = document.getElementById("firebaseConfigJson")?.value.trim() || "";
-  firebaseSync.workspaceId = document.getElementById("firebaseWorkspaceId")?.value.trim() || "";
+  firebaseSync.email = document.getElementById("firebaseEmail")?.value.trim() || "";
   saveFirebaseSyncSettings();
 
-  const connected = await connectFirebase({ alert: true });
+  const connected = await connectFirebase({ alert: true, mode: mode || "signin" });
   if (!connected) return;
 
   try {
-    setFirebaseStatus("Uploading local data...", "ok");
+    setFirebaseStatus("Syncing your account...", "ok");
     const { pulled, pushed } = await syncBothWays();
     refreshViewsAfterSync();
-    setFirebaseStatus(`Connected. Synced ${Math.max(pushed.receipts, pulled.receipts)} receipts.`, "ok");
-    alert("Firebase connected. Receipts and categories will sync to the cloud.");
+    setFirebaseStatus(`Signed in. Synced ${Math.max(pushed.receipts, pulled.receipts)} receipts.`, "ok");
+    if (typeof showNotice === "function") showNotice("Cloud sync is on for this account");
   } catch (error) {
     console.error(error);
     setFirebaseStatus(error.message || "Sync failed", "error");
-    alert("Connected, but sync failed: " + error.message + "\nCheck Firestore is enabled and your rules allow this workspace.");
+    alert("Signed in, but sync failed: " + error.message + "\nPublish the Firestore rules from Settings, and enable Cloud Firestore.");
   }
+}
+
+async function signOutFirebase() {
+  try {
+    if (typeof firebase !== "undefined" && firebase.apps && firebase.apps.length) {
+      await firebase.auth().signOut();
+    }
+  } catch (error) {
+    console.warn("Sign out failed", error);
+  }
+  firestoreDb = null;
+  firebaseSync.enabled = false;
+  firebaseSync.workspaceId = "";
+  saveFirebaseSyncSettings();
+  const passEl = document.getElementById("firebasePassword");
+  if (passEl) passEl.value = "";
+  setFirebaseStatus("Signed out", "");
 }
 
 async function syncNow() {
@@ -327,7 +494,7 @@ async function syncNow() {
     const { pulled } = await syncBothWays();
     refreshViewsAfterSync();
     setFirebaseStatus(`Sync complete (${pulled.receipts} receipts in cloud).`, "ok");
-    alert("Sync complete.");
+    if (typeof showNotice === "function") showNotice("Sync complete");
   } catch (error) {
     console.error(error);
     setFirebaseStatus(error.message || "Sync failed", "error");
@@ -343,5 +510,8 @@ if (typeof module !== "undefined" && module.exports) {
     mergeReceiptFromCloud,
     pickListByUpdatedAt,
     mergeSettingsFromCloud,
+    mergeEstateLists,
+    mergeDeletionMaps,
+    applyEstateDeletions,
   };
 }

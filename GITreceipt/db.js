@@ -83,7 +83,12 @@ function saveReceipt(receipt){
 
 function getReceipt(receiptNo){
 
-    return new Promise((resolve)=>{
+    return new Promise((resolve, reject)=>{
+
+        if (!db) {
+            resolve(undefined);
+            return;
+        }
 
         const tx =
             db.transaction(
@@ -97,12 +102,18 @@ function getReceipt(receiptNo){
 
         request.onsuccess =
             () => resolve(request.result);
+        request.onerror = () => reject(request.error);
     });
 }
 
 function getAllReceipts(){
 
-    return new Promise((resolve)=>{
+    return new Promise((resolve, reject)=>{
+
+        if (!db) {
+            resolve([]);
+            return;
+        }
 
         const tx =
             db.transaction(
@@ -115,7 +126,8 @@ function getAllReceipts(){
               .getAll();
 
         request.onsuccess =
-            () => resolve(request.result);
+            () => resolve(request.result || []);
+        request.onerror = () => reject(request.error);
     });
 }
 
@@ -138,6 +150,9 @@ function deleteReceiptFromIndexedDB(receiptNo){
 }
 
 function deleteReceipt(receiptNo){
+    if (typeof recordLocalDeletion === "function") {
+        recordLocalDeletion(receiptNo);
+    }
 
     return deleteReceiptFromIndexedDB(receiptNo).then(() => {
         if (typeof deleteReceiptFromCloud === "function") {

@@ -79,6 +79,10 @@ body.dark {
   box-sizing: border-box;
 }
 
+html {
+  scroll-padding-top: 80px;
+}
+
 body {
   font-family: var(--font-body);
   background: var(--bg-app);
@@ -150,7 +154,19 @@ header {
 }
 
 .brand {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+
+.brand-mark {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #fff;
+  flex-shrink: 0;
 }
 
 .brand h1 {
@@ -560,6 +576,68 @@ input[readonly] {
 .firebase-actions button {
   flex: 1;
   min-width: 160px;
+}
+
+.rules-sample {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  background: var(--bg-app);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  overflow-x: auto;
+  margin: 0 0 16px;
+  white-space: pre;
+}
+
+.dashboard-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  border-bottom: 2px solid var(--primary-light);
+  padding-bottom: 8px;
+}
+
+.dashboard-heading h2 {
+  margin: 0;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.dashboard-period {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.dashboard-period select {
+  width: auto;
+  margin: 0;
+  padding: 8px 10px;
+}
+
+.app-notice {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  background: #0f172a;
+  color: #fff;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  z-index: 1200;
+  max-width: min(440px, calc(100% - 32px));
+  box-shadow: var(--shadow-lg);
+  font-size: 14px;
 }
 
 .secondary-btn {
@@ -1413,6 +1491,31 @@ body.dark .estate-overview-card {
   }
 }
 
+@media (min-width: 960px) {
+  .hamburger {
+    display: none;
+  }
+
+  .sidebar {
+    transform: none;
+    pointer-events: auto;
+    padding-top: 16px;
+  }
+
+  .sidebar-backdrop {
+    display: none;
+  }
+
+  header,
+  main {
+    margin-left: 280px;
+  }
+
+  main {
+    max-width: 880px;
+  }
+}
+
 /* Back to Dashboard Button styling */
 .back-dashboard-container {
   margin-bottom: 16px;
@@ -1500,7 +1603,72 @@ body.dark .estate-overview-card {
 
   .receipt-card-footer .print-btn,
   .receipt-card-footer .share-btn,
-  .receipt-share-actions {
+  .receipt-share-actions,
+  .share-format-row {
     display: none !important;
   }
+}
+
+#adminNav[hidden],
+.renew-card[hidden],
+.client-review[hidden] {
+  display: none !important;
+}
+
+.client-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.client-row strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.status-pill {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.status-free {
+  background: var(--success-light);
+  color: var(--success-hover);
+}
+
+.status-expired,
+.status-pending {
+  background: var(--warning-light);
+  color: var(--warning-hover);
+}
+
+.client-review {
+  margin-top: 16px;
+}
+
+#registerBtn,
+#payBtn,
+#savePriceBtn,
+#renewBannerBtn,
+#settingsRenewBtn,
+#makeFreeBtn,
+#grantSubBtn {
+  background: var(--primary);
+  color: white;
+  width: 100%;
+  margin-top: 8px;
+}
+
+#signInBtn,
+#accountSignOutBtn {
+  width: 100%;
+  margin-top: 8px;
 }

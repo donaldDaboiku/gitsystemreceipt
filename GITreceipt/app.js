@@ -3,6 +3,7 @@ let settings = {
   businessName: "",
   address: "",
   phone: "",
+  countryCode: "234",
   email: "",
   prefix: "RCP",
   currency: "₦",
@@ -27,25 +28,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   loadSettings();
   loadEstates();
   loadFirebaseSyncSettings();
-  fillFirebaseSettingsForm();
-
-  try {
-    const connected = await connectFirebase({ alert: false });
-    if (connected) {
-      await syncBothWays();
-      loadSettings();
-      loadEstates();
-    }
-  } catch (error) {
-    console.warn("Firebase startup sync skipped:", error);
-  }
 
   loadDashboard();
   loadHistory();
   registerEvents();
   registerSW();
   initInstallPrompt();
-  showSection("dashboard");
+  if (typeof bootAccount === "function") {
+    await bootAccount();
+  } else {
+    showSection("dashboard");
+  }
 });
 
 // Theme Management
@@ -73,6 +66,7 @@ function saveSettings() {
   settings.businessName = document.getElementById("businessName").value.trim();
   settings.address = document.getElementById("address").value.trim();
   settings.phone = document.getElementById("phone").value.trim();
+  settings.countryCode = document.getElementById("countryCode").value.replace(/\D/g, "") || "234";
   settings.email = document.getElementById("email").value.trim();
   settings.prefix = document.getElementById("prefix").value.trim() || "RCP";
   settings.currency = document.getElementById("currency").value.trim() || "₦";
@@ -85,7 +79,8 @@ function saveSettings() {
   if (typeof syncSettingsToCloud === "function") {
     syncSettingsToCloud(settings).catch((err) => console.warn("Cloud sync failed", err));
   }
-  alert("Settings Saved Successfully!");
+  refreshSetupCard();
+  showNotice("Settings saved");
 
   // Refresh views to reflect currency/prefix updates
   loadDashboard();
@@ -101,6 +96,7 @@ function loadSettings() {
   document.getElementById("businessName").value = settings.businessName || "";
   document.getElementById("address").value = settings.address || "";
   document.getElementById("phone").value = settings.phone || "";
+  document.getElementById("countryCode").value = settings.countryCode || "234";
   document.getElementById("email").value = settings.email || "";
   document.getElementById("prefix").value = settings.prefix || "RCP";
   document.getElementById("currency").value = settings.currency || "₦";
@@ -112,12 +108,16 @@ function loadSettings() {
   if (logoPreview) {
     if (settings.logo) {
       logoPreview.src = settings.logo;
+      logoPreview.alt = "Business logo";
       logoPreview.style.display = "block";
     } else {
-      logoPreview.src = "";
+      logoPreview.removeAttribute("src");
+      logoPreview.alt = "";
       logoPreview.style.display = "none";
     }
   }
+
+  refreshSetupCard();
 
   const signaturePreview = document.getElementById("signaturePreview");
   if (signaturePreview) {
@@ -169,6 +169,7 @@ function loadEstates() {
 function deleteEstate(id) {
   if (!confirm("Are you sure you want to delete this category? Past receipts will keep their details, but this category will be removed from selection.")) return;
   estates = estates.filter((e) => e.id !== id);
+  if (typeof recordEstateDeletion === "function") recordEstateDeletion(id);
   persistEstates();
   
   // If we are currently editing the estate being deleted, cancel edit mode
@@ -337,24 +338,24 @@ function updateItemAmountsTotal() {
   }
 
   const amountInput = document.getElementById("amount");
-  const totalAmountInput = document.getElementById("totalAmount");
+  const amountDueInput = document.getElementById("amountDue");
   const isPart = document.getElementById("isPartPayment")?.checked;
 
   if (items.length) {
     if (isPart) {
-      if (totalAmountInput) {
-        totalAmountInput.value = sum ? String(sum) : "";
-        totalAmountInput.readOnly = true;
+      if (amountDueInput) {
+        amountDueInput.value = sum ? String(sum) : "";
+        amountDueInput.readOnly = true;
       }
       if (amountInput) amountInput.readOnly = false;
     } else if (amountInput) {
       amountInput.value = sum ? String(sum) : "";
       amountInput.readOnly = true;
-      if (totalAmountInput) totalAmountInput.readOnly = false;
+      if (amountDueInput) amountDueInput.readOnly = false;
     }
   } else {
     if (amountInput) amountInput.readOnly = false;
-    if (totalAmountInput) totalAmountInput.readOnly = false;
+    if (amountDueInput) amountDueInput.readOnly = false;
   }
 
   updatePartPaymentBalance();
@@ -372,6 +373,15 @@ function registerEvents() {
   const searchBtn = document.getElementById("searchBtn");
   if (searchBtn) {
     searchBtn.addEventListener("click", searchReceipt);
+  }
+  const searchBox = document.getElementById("searchBox");
+  if (searchBox) {
+    searchBox.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        searchReceipt();
+      }
+    });
   }
 
   // Backup Export/Import
@@ -403,6 +413,11 @@ function registerEvents() {
     logoUpload.addEventListener("change", function (e) {
       const file = e.target.files[0];
       if (!file) return;
+      if (file.size > 400 * 1024) {
+        e.target.value = "";
+        showNotice("Use a logo under 400 KB so it can be saved on this phone.");
+        return;
+      }
 
       const reader = new FileReader();
       reader.onload = function () {
@@ -410,6 +425,7 @@ function registerEvents() {
         const preview = document.getElementById("logoPreview");
         if (preview) {
           preview.src = reader.result;
+          preview.alt = "Business logo";
           preview.style.display = "block";
         }
       };
@@ -425,6 +441,11 @@ function registerEvents() {
     signatureUpload.addEventListener("change", function (e) {
       const file = e.target.files[0];
       if (!file) return;
+      if (file.size > 400 * 1024) {
+        e.target.value = "";
+        showNotice("Use a signature image under 400 KB so it can be saved on this phone.");
+        return;
+      }
 
       const reader = new FileReader();
       reader.onload = function () {
@@ -460,11 +481,28 @@ function registerEvents() {
 
   const saveFirebaseBtn = document.getElementById("saveFirebaseBtn");
   if (saveFirebaseBtn) {
-    saveFirebaseBtn.addEventListener("click", saveAndConnectFirebase);
+    saveFirebaseBtn.addEventListener("click", () => saveAndConnectFirebase("signin"));
+  }
+  const createFirebaseBtn = document.getElementById("createFirebaseBtn");
+  if (createFirebaseBtn) {
+    createFirebaseBtn.addEventListener("click", () => saveAndConnectFirebase("signup"));
   }
   const syncFirebaseBtn = document.getElementById("syncFirebaseBtn");
   if (syncFirebaseBtn) {
     syncFirebaseBtn.addEventListener("click", syncNow);
+  }
+  const signOutFirebaseBtn = document.getElementById("signOutFirebaseBtn");
+  if (signOutFirebaseBtn) {
+    signOutFirebaseBtn.addEventListener("click", signOutFirebase);
+  }
+
+  const dashboardPeriod = document.getElementById("dashboardPeriod");
+  if (dashboardPeriod) {
+    dashboardPeriod.addEventListener("change", loadDashboard);
+  }
+  const goSettingsBtn = document.getElementById("goSettingsBtn");
+  if (goSettingsBtn) {
+    goSettingsBtn.addEventListener("click", () => showSection("settings"));
   }
 
   const paymentTypeSelect = document.getElementById("paymentType");
@@ -474,14 +512,14 @@ function registerEvents() {
   }
 
   const isPartPayment = document.getElementById("isPartPayment");
-  const totalAmountInput = document.getElementById("totalAmount");
+  const amountDueInput = document.getElementById("amountDue");
   const amountInput = document.getElementById("amount");
   if (isPartPayment) {
     isPartPayment.addEventListener("change", togglePartPaymentFields);
     togglePartPaymentFields();
   }
-  if (totalAmountInput) {
-    totalAmountInput.addEventListener("input", updatePartPaymentBalance);
+  if (amountDueInput) {
+    amountDueInput.addEventListener("input", updatePartPaymentBalance);
   }
   if (amountInput) {
     amountInput.addEventListener("input", updatePartPaymentBalance);
@@ -506,32 +544,32 @@ function registerEvents() {
       }
 
       if (editingEstateId) {
-        // Update
         const estate = estates.find((e) => e.id === editingEstateId);
         if (estate) {
           estate.name = name;
           estate.location = location;
           estate.units = units;
+          estate.updatedAt = Date.now();
         }
 
         persistEstates();
         editingEstateId = null;
         document.getElementById("addEstateBtn").textContent = "Add Category";
-        
+
         const cancelBtn = document.getElementById("cancelEstateEditBtn");
         if (cancelBtn) cancelBtn.style.display = "none";
-        
-        alert("Category updated successfully!");
+
+        showNotice("Category updated");
       } else {
-        // Create
         estates.push({
           id: Date.now(),
           name: name,
           location: location,
           units: units,
+          updatedAt: Date.now(),
         });
         persistEstates();
-        alert("Category added successfully!");
+        showNotice("Category added");
       }
 
       document.getElementById("estateNameInput").value = "";
@@ -704,6 +742,11 @@ function handleHistoryClick(e) {
 // Receipt Creation Handler
 async function createReceipt(e) {
   e.preventDefault();
+  if (window.accountLock) {
+    showNotice("Subscribe to create receipts.");
+    showSection(window.accountLock);
+    return;
+  }
 
   const lineItems = getSelectedLineItems();
   if (lineItems.some((item) => !(item.amount > 0))) {
@@ -718,7 +761,7 @@ async function createReceipt(e) {
     amount = itemsTotal;
   }
   const totalAmount = isPartPayment
-    ? (lineItems.length ? itemsTotal : Number(document.getElementById("totalAmount")?.value || 0))
+    ? (lineItems.length ? itemsTotal : Number(document.getElementById("amountDue")?.value || 0))
     : amount;
 
   if (amount <= 0) {
@@ -771,7 +814,7 @@ async function createReceipt(e) {
   }
 
   const receipt = {
-    receiptNo: generateReceiptNo(),
+    receiptNo: await generateReceiptNo(),
     payer: payer,
     phone: document.getElementById("payerPhone").value.trim(),
     estateId: selectedEstateId ? Number(selectedEstateId) : null,
@@ -882,7 +925,7 @@ function togglePartPaymentFields() {
   }
 
   if (!isPart) {
-    const totalInput = document.getElementById("totalAmount");
+    const totalInput = document.getElementById("amountDue");
     if (totalInput) totalInput.value = "";
   }
 
@@ -896,7 +939,7 @@ function updatePartPaymentBalance() {
   if (!balanceEl || !checkbox?.checked) return;
 
   const currencySymbol = settings.currency || "₦";
-  const totalAmount = Number(document.getElementById("totalAmount")?.value || 0);
+  const totalAmount = Number(document.getElementById("amountDue")?.value || 0);
   const amountPaid = Number(document.getElementById("amount")?.value || 0);
   const balance = Math.max(0, totalAmount - amountPaid);
 
@@ -972,6 +1015,30 @@ function formatHistoryAmount(receipt, currencySymbol) {
     text += ` <span style="font-size: 12px; color: #f59e0b;">(Part · Bal ${formatMoney(balance, currencySymbol)})</span>`;
   }
   return text;
+}
+
+function ensurePaymentDate() {
+  const paymentDateInput = document.getElementById("paymentDate");
+  if (paymentDateInput && !paymentDateInput.value) {
+    paymentDateInput.value = new Date().toISOString().split("T")[0];
+  }
+}
+
+function showNotice(message) {
+  const el = document.getElementById("appNotice");
+  if (!el) return;
+  el.textContent = message;
+  el.hidden = false;
+  clearTimeout(showNotice.timer);
+  showNotice.timer = setTimeout(() => {
+    el.hidden = true;
+  }, 3200);
+}
+
+function refreshSetupCard() {
+  const card = document.getElementById("setupCard");
+  if (!card) return;
+  card.hidden = Boolean((settings.businessName || "").trim());
 }
 
 function togglePaymentPeriodFields() {
@@ -1064,10 +1131,10 @@ function buildSignatureBlock(receipt) {
       ${signatureImageHtml}
       ${signatoryHtml}
       <div class="receipt-authenticity">
-        <span class="auth-badge">✓ Digitally Signed</span>
-        <small>Signed on ${escapeHtml(formatSignedDate(signedAt))}</small>
-        <small class="auth-code">Verification Code: ${escapeHtml(verificationCode)}</small>
-        <small class="auth-note">This receipt is electronically generated. Confirm authenticity using the verification code above.</small>
+        <span class="auth-badge">✓ Issued</span>
+        <small>Issued ${escapeHtml(formatSignedDate(signedAt))}</small>
+        <small class="auth-code">Receipt code: ${escapeHtml(verificationCode)}</small>
+        <small class="auth-note">Quote this code if you need this receipt checked against our records.</small>
       </div>
     </div>
   `;
@@ -1085,7 +1152,7 @@ function buildReceiptShareText(receipt) {
   const lines = [
     "PAYMENT RECEIPT",
     "================",  
-    settings.businessName || "Receipt Manager",
+    settings.businessName || "GITSYSTEM Receipt",
     settings.address || "",
     [settings.phone, settings.email].filter(Boolean).join(" | "),
     "",
@@ -1122,7 +1189,7 @@ function buildReceiptShareText(receipt) {
   }
 
   lines.push(
-    `Payment Date: ${receipt.paymentDate || receipt.date}`,
+    `Payment Date: ${receipt.paymentDate ? formatDisplayDate(receipt.paymentDate) : receipt.date}`,
     `Issue Date: ${receipt.date}`,
   );
 
@@ -1130,7 +1197,7 @@ function buildReceiptShareText(receipt) {
 
   lines.push(
     "",
-    `Verification Code: ${verificationCode}`,
+    `Receipt code: ${verificationCode}`,
   );
 
   if (signatoryName || signatoryTitle) {
@@ -1145,12 +1212,14 @@ function buildReceiptShareText(receipt) {
 
 function normalizeWhatsAppPhone(phone) {
   if (!phone) return "";
-  let digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("0")) {
-    digits = "234" + digits.slice(1);
-  } else if (digits.length === 10) {
-    digits = "234" + digits;
-  }
+  const trimmed = phone.trim();
+  let digits = trimmed.replace(/\D/g, "");
+  if (!digits) return "";
+  if (trimmed.startsWith("+")) return digits;
+  const countryCode = (settings.countryCode || "234").replace(/\D/g, "") || "234";
+  if (digits.startsWith(countryCode) && digits.length > 10) return digits;
+  if (digits.startsWith("0")) return countryCode + digits.slice(1);
+  if (digits.length <= 10) return countryCode + digits;
   return digits;
 }
 
@@ -1239,7 +1308,7 @@ async function shareReceiptFile(receipt, format, channel) {
   const filename = `${receipt.receiptNo}.${ext}`;
   const blob = await generateReceiptBlob(format);
   const file = new File([blob], filename, { type: mimeType });
-  const shareText = `Payment receipt ${receipt.receiptNo} from ${settings.businessName || "Receipt Manager"}`;
+  const shareText = `Payment receipt ${receipt.receiptNo} from ${settings.businessName || "GITSYSTEM Receipt"}`;
   const shareData = { files: [file], title: `Receipt ${receipt.receiptNo}`, text: shareText };
 
   if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
@@ -1305,7 +1374,7 @@ function showReceipt(r, containerId = "receiptPreview") {
 
   // Build Business Headers from config
   const logoHtml = settings.logo
-    ? `<img src="${settings.logo}" class="receipt-logo" alt="Business Logo" />`
+    ? `<img src="${settings.logo}" class="receipt-logo" alt="Business logo" />`
     : "";
 
   const bizNameHtml = settings.businessName
@@ -1376,7 +1445,7 @@ function showReceipt(r, containerId = "receiptPreview") {
             
             <div class="receipt-row">
                 <label>Payment Date</label>
-                <span>${r.paymentDate ? escapeHtml(r.paymentDate) : escapeHtml(r.date)}</span>
+                <span>${r.paymentDate ? escapeHtml(formatDisplayDate(r.paymentDate)) : escapeHtml(r.date)}</span>
             </div>
             
             <div class="receipt-row">
@@ -1437,18 +1506,31 @@ function showReceipt(r, containerId = "receiptPreview") {
 }
 
 // Load Dashboard statistics & layouts
+function receiptInPeriod(receipt, period) {
+  if (!period || period === "all") return true;
+  const raw = receipt.paymentDate || "";
+  const date = raw ? new Date(raw + "T00:00:00") : new Date(receipt.date);
+  if (Number.isNaN(date.getTime())) return false;
+  const now = new Date();
+  if (period === "today") return date.toDateString() === now.toDateString();
+  if (period === "month") {
+    return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+  }
+  return true;
+}
+
 async function loadDashboard() {
   const data = await getAllReceipts();
+  const period = document.getElementById("dashboardPeriod")?.value || "month";
+  const visible = data.filter((receipt) => receiptInPeriod(receipt, period));
 
-  const totalReceipts = data.length;
-  const totalAmount = data.reduce((sum, r) => sum + r.amount, 0);
-  const currencySymbol = settings.currency || "₦";
+  const totalReceipts = visible.length;
+  const totalAmount = visible.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
 
   document.getElementById("totalReceipts").textContent = totalReceipts;
-  document.getElementById("totalAmount").textContent =
-    currencySymbol + Math.max(0, totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  document.getElementById("collectionsTotal").textContent = formatMoney(Math.max(0, totalAmount));
 
-  loadEstatesOverview(data);
+  loadEstatesOverview(visible);
 }
 
 // Generate Estates revenue statistics widgets
@@ -1456,16 +1538,13 @@ async function loadEstatesOverview(data) {
   const estatesMap = {};
 
   data.forEach((r) => {
-    let displayUnit = r.unit || "Unassigned";
-    if (r.estateName) {
-      displayUnit = `${r.estateName} - ${r.unit || "Unassigned"}`;
-    }
+    const label = r.estateName || "No category";
 
-    if (!estatesMap[displayUnit]) {
-      estatesMap[displayUnit] = { label: displayUnit, count: 0, total: 0 };
+    if (!estatesMap[label]) {
+      estatesMap[label] = { label, count: 0, total: 0 };
     }
-    estatesMap[displayUnit].count += 1;
-    estatesMap[displayUnit].total += r.amount;
+    estatesMap[label].count += 1;
+    estatesMap[label].total += Number(r.amount) || 0;
   });
 
   const estatesList = Object.values(estatesMap).sort(
@@ -1512,7 +1591,8 @@ async function loadHistory() {
 
   const currencySymbol = settings.currency || "₦";
   let html = "";
-  [...receipts].reverse().forEach((r) => {
+  const recent = [...receipts].reverse().slice(0, 12);
+  recent.forEach((r) => {
     let categoryText = escapeHtml(formatCategoryItem(r));
 
     html += `
@@ -1533,6 +1613,9 @@ async function loadHistory() {
       </div>
     `;
   });
+  if (receipts.length > recent.length) {
+    html += "<p style='text-align: center; color: #64748b;'>Older receipts are in History.</p>";
+  }
   list.innerHTML = html;
 }
 
@@ -1667,6 +1750,14 @@ async function searchReceipt() {
 
 // Section routing and sidebar link synchronization
 function showSection(sectionId) {
+  if (sectionId === "admin" && window.isAppAdmin) {
+    sectionId = "admin";
+  } else if (window.accountLock === "auth" || window.accountLock === "subscribe") {
+    sectionId = window.accountLock;
+  } else if (sectionId === "admin") {
+    sectionId = "dashboard";
+  }
+
   // Hide all sections
   const sections = document.querySelectorAll(".page-section");
   sections.forEach((section) => {
@@ -1688,6 +1779,12 @@ function showSection(sectionId) {
       }
     });
 
+    window.scrollTo(0, 0);
+
+    if (sectionId === "receipt") {
+      ensurePaymentDate();
+    }
+
     // Lazy load section specific data
     if (sectionId === "estates") {
       loadEstatesDetail();
@@ -1698,6 +1795,8 @@ function showSection(sectionId) {
       updateEstateDropdown();
       togglePaymentPeriodFields();
       togglePartPaymentFields();
+    } else if (sectionId === "admin" && typeof loadAdmin === "function") {
+      loadAdmin().catch((error) => alert(error.message));
     } else if (sectionId === "viewReceipt") {
       // If there is no content inside receipt preview, add empty state message
       const preview = document.getElementById("receiptPreview");
@@ -1832,7 +1931,7 @@ async function importBackup(e) {
       for (const r of receiptsToImport) {
         await saveReceipt(r);
       }
-      alert(`Imported ${receiptsToImport.length} receipts successfully!`);
+      showNotice(`Imported ${receiptsToImport.length} receipts`);
     } else {
       alert("No receipts found in backup file.");
     }
@@ -1927,15 +2026,25 @@ function initInstallPrompt() {
   });
 }
 
-// Sequential/Random receipt no generation using settings prefix
-function generateReceiptNo() {
-  try {
-    let prefix = settings.prefix || "RCP";
-    let date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-    let random = Math.floor(Math.random() * 9000) + 1000;
-    return `${prefix}-${date}-${random}`;
-  } catch (error) {
-    console.error("Error generating receipt number:", error);
-    return `RCP-${Date.now()}`;
+function deviceTag() {
+  let tag = localStorage.getItem("deviceTag");
+  if (!/^[A-Z0-9]{2}$/.test(tag || "")) {
+    tag = Math.random().toString(36).slice(2, 4).toUpperCase();
+    localStorage.setItem("deviceTag", tag);
   }
+  return tag;
+}
+
+async function generateReceiptNo() {
+  const prefix = ((settings.prefix || "RCP").trim() || "RCP").replace(/[^\w-]/g, "") || "RCP";
+  const tag = deviceTag();
+  const all = await getAllReceipts();
+  const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp("^" + escaped + "-" + tag + "-(\\d+)$");
+  let max = 0;
+  for (const receipt of all || []) {
+    const match = String(receipt.receiptNo || "").match(pattern);
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  return `${prefix}-${tag}-${String(max + 1).padStart(4, "0")}`;
 }

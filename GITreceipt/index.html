@@ -3,19 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="Offline receipt manager for any business. Create, print, and share receipts." />
+    <meta name="description" content="GITSYSTEM Receipt. Create, print, and share receipts for any business." />
     <meta name="theme-color" content="#0f172a" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Receipts" />
+    <meta name="apple-mobile-web-app-title" content="GITSYSTEM" />
 
-    <title>Receipt Manager</title>
+    <title>GITSYSTEM Receipt</title>
 
     <link rel="manifest" href="manifest.json" />
-    <link rel="icon" href="icons/icon-192.png" />
-    <link rel="apple-touch-icon" href="icons/icon-192.png" />
-    <link rel="stylesheet" href="style.css" />
+    <link rel="icon" href="icons/favicon.ico" sizes="any" />
+    <link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <link rel="stylesheet" href="style.css?v=18" />
   </head>
 
   <body>
@@ -26,8 +27,11 @@
         <span></span>
       </button>
       <div class="brand" id="brandBtn" title="Go to Dashboard">
-        <h1>Receipt Manager</h1>
-        <small>Offline Receipt System for Any Business</small>
+        <img class="brand-mark" src="icons/icon-192.png" alt="" width="36" height="36" />
+        <div class="brand-text">
+          <h1>GITSYSTEM Receipt</h1>
+          <small>Offline Receipt System for Any Business</small>
+        </div>
       </div>
       <button type="button" id="themeToggleBtn" class="theme-toggle" aria-label="Toggle Dark/Light Mode">
         <span class="theme-toggle-icon">🌓</span>
@@ -56,16 +60,99 @@
         <a href="#settings" class="nav-item" data-section="settings"
           >⚙️ Settings</a
         >
+        <a href="#admin" class="nav-item" id="adminNav" data-section="admin" hidden
+          >🛡️ Admin</a
+        >
       </nav>
     </aside>
 
     <div class="sidebar-backdrop" id="sidebarBackdrop" aria-hidden="true"></div>
 
     <main>
-      <!-- Dashboard Section -->
-      <section id="dashboard" class="page-section">
+      <section id="auth" class="page-section">
         <section class="card">
-          <h2>Dashboard</h2>
+          <h2>Register or sign in</h2>
+          <p class="install-card-text">
+            Create an account, then subscribe. Your receipts stay on this phone and back up to your account.
+          </p>
+          <p id="configWarning" class="install-card-text" hidden>
+            This copy is not connected to the cloud yet. The app owner still needs to add the Firebase project.
+          </p>
+          <label for="authEmail">Email</label>
+          <input type="email" id="authEmail" autocomplete="username" />
+          <label for="authPassword">Password</label>
+          <input type="password" id="authPassword" autocomplete="current-password" placeholder="At least 6 characters" />
+          <button type="button" id="registerBtn">Register</button>
+          <button type="button" id="signInBtn" class="secondary-btn">Sign in</button>
+        </section>
+      </section>
+
+      <section id="subscribe" class="page-section hidden">
+        <section class="card">
+          <h2>Subscribe</h2>
+          <p id="subscribePrice" class="install-card-text">Loading the current price…</p>
+          <button type="button" id="payBtn">Pay with Paystack</button>
+          <button type="button" id="accountSignOutBtn" class="secondary-btn">Sign out</button>
+        </section>
+      </section>
+
+      <section id="admin" class="page-section hidden">
+        <div class="back-dashboard-container">
+          <button class="back-dashboard-btn" type="button"><span>←</span> Back to Dashboard</button>
+        </div>
+        <section class="card">
+          <h2>Subscription price</h2>
+          <label for="priceAmount">Amount (NGN)</label>
+          <input type="number" id="priceAmount" min="100" step="1" placeholder="5000" />
+          <label for="priceDays">Access period (days)</label>
+          <input type="number" id="priceDays" min="1" max="366" step="1" value="30" />
+          <button type="button" id="savePriceBtn">Save price</button>
+          <p id="priceStatus" class="install-card-text"></p>
+        </section>
+        <section class="card">
+          <h2>Clients</h2>
+          <div id="clientList"></div>
+          <div id="clientReview" class="client-review" hidden>
+            <h3 id="reviewEmail"></h3>
+            <p id="reviewMeta" class="install-card-text"></p>
+            <label for="reviewNote">Review note</label>
+            <textarea id="reviewNote" placeholder="Optional note only you can see"></textarea>
+            <div class="firebase-actions">
+              <button type="button" id="makeFreeBtn">Make free</button>
+              <button type="button" id="grantSubBtn">Grant subscription</button>
+              <button type="button" id="revokeBtn" class="secondary-btn">Set pending</button>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <!-- Dashboard Section -->
+      <section id="dashboard" class="page-section hidden">
+        <section class="card renew-card" id="renewBanner" hidden>
+          <h2>Subscription</h2>
+          <p id="renewBannerText" class="install-card-text"></p>
+          <button type="button" id="renewBannerBtn">Renew with Paystack</button>
+        </section>
+        <section class="card setup-card" id="setupCard" hidden>
+          <h2>Add your business name</h2>
+          <p class="install-card-text">
+            Receipts look official once they show your business name, phone, and address.
+          </p>
+          <button type="button" id="goSettingsBtn" class="install-app-btn">Open Settings</button>
+        </section>
+
+        <section class="card">
+          <div class="dashboard-heading">
+            <h2>Dashboard</h2>
+            <label class="dashboard-period">
+              Show
+              <select id="dashboardPeriod">
+                <option value="today">Today</option>
+                <option value="month" selected>This month</option>
+                <option value="all">All time</option>
+              </select>
+            </label>
+          </div>
 
           <div class="stats">
             <div class="stat-box">
@@ -75,7 +162,7 @@
             </div>
 
             <div class="stat-box">
-              <span id="totalAmount"> ₦0 </span>
+              <span id="collectionsTotal"> ₦0 </span>
 
               <small> Collections </small>
             </div>
@@ -97,7 +184,7 @@
         <section class="card install-card" id="installCard" hidden>
           <h2>Install App</h2>
           <p class="install-card-text">
-            Add Receipt Manager to your home screen for quick access and offline use.
+            Add GITSYSTEM Receipt to your home screen for quick access and offline use.
           </p>
           <button type="button" id="installAppBtn" class="install-app-btn">
             📲 Install on Phone
@@ -150,7 +237,7 @@
               <p id="itemsTotal" class="items-total"></p>
             </div>
 
-            <select id="paymentType">
+            <select id="paymentType" aria-label="Payment type">
               <option value="Sale">Sale</option>
               <option value="Service">Service</option>
               <option value="Rent">Rent</option>
@@ -174,8 +261,8 @@
             </label>
 
             <div id="partPaymentFields" class="part-payment-fields hidden">
-              <label for="totalAmount">Total Amount Due</label>
-              <input type="number" id="totalAmount" placeholder="Full amount owed" min="0" step="0.01" />
+              <label for="amountDue">Total Amount Due</label>
+              <input type="number" id="amountDue" placeholder="Full amount owed" min="0" step="0.01" />
               <p id="partPaymentBalance" class="part-payment-balance">Balance remaining: —</p>
             </div>
 
@@ -185,7 +272,7 @@
             <label for="paymentDate" style="margin-top: 10px; font-weight: bold;">Date of Payment</label>
             <input type="date" id="paymentDate" required />
 
-            <select id="paymentMethod">
+            <select id="paymentMethod" aria-label="Payment method">
               <option>Cash</option>
 
               <option>Transfer</option>
@@ -258,8 +345,7 @@
                 id="estateLocationInput"
                 placeholder="Location / Description (optional)"
               />
-              <textarea name="" id="estateUnitsInput" placeholder="Items separated by commas (e.g., Item 1, Item 2, Premium Plan)">
-              </textarea>
+              <textarea id="estateUnitsInput" placeholder="Items separated by commas (e.g., Item 1, Item 2, Premium Plan)"></textarea>
               <div style="display: flex; gap: 10px">
                 <button id="addEstateBtn" style="flex: 1; background: #16a34a">
                   Add Category
@@ -325,6 +411,9 @@
           <label>Phone</label>
           <input type="text" id="phone" />
 
+          <label for="countryCode">WhatsApp country code</label>
+          <input type="text" id="countryCode" inputmode="numeric" placeholder="234" value="234" />
+
           <label>Email</label>
           <input type="email" id="email" />
 
@@ -341,7 +430,7 @@
           <input type="file" id="logoUpload" accept="image/*" />
 
           <div class="logo-preview">
-            <img id="logoPreview" width="120" />
+            <img id="logoPreview" width="120" alt="" />
           </div>
 
           <h3 style="margin-top: 24px; margin-bottom: 8px;">Digital Signature</h3>
@@ -364,31 +453,12 @@
 
           <button id="saveSettingsBtn">Save Settings</button>
 
-          <h3 style="margin-top: 32px; margin-bottom: 8px;">Firebase Cloud Sync</h3>
-          <p style="font-size: 13px; color: #64748b; margin-top: 0; margin-bottom: 12px;">
-            Back up receipts and categories to Firebase so they are also stored in the cloud.
-            Create a project at
-            <a href="https://console.firebase.google.com" target="_blank" rel="noopener">console.firebase.google.com</a>,
-            enable Cloud Firestore, add a web app, then paste the config below.
-            Use the same Workspace ID on every device. Logo and signature stay on this device.
-          </p>
-          <p style="font-size: 12px; color: #64748b; margin-top: 0; margin-bottom: 16px;">
-            Firestore rules example:
-            <code>allow read, write: if id.size() &gt;= 8 &amp;&amp; id.size() &lt;= 64 &amp;&amp; id.matches('^[A-Za-z0-9_-]+$');</code>
-            on <code>workspaces/{id}/{document=**}</code>.
-          </p>
-
-          <label>Firebase config</label>
-          <textarea id="firebaseConfigJson" rows="8" spellcheck="false" autocomplete="off" placeholder='{"apiKey":"...","authDomain":"...","projectId":"...","storageBucket":"...","messagingSenderId":"...","appId":"..."}'></textarea>
-
-          <label>Workspace ID</label>
-          <input type="text" id="firebaseWorkspaceId" minlength="8" maxlength="64" pattern="[A-Za-z0-9_-]{8,64}" autocomplete="off" placeholder="8-64 letters, numbers, hyphen, or underscore" />
-
-          <p id="firebaseStatus" class="firebase-status">Not connected</p>
-
+          <h3 style="margin-top: 32px; margin-bottom: 8px;">Account</h3>
+          <p id="accountSummary" class="install-card-text">Not signed in</p>
           <div class="firebase-actions">
-            <button type="button" id="saveFirebaseBtn">Save &amp; Connect Firebase</button>
+            <button type="button" id="settingsRenewBtn">Renew subscription</button>
             <button type="button" id="syncFirebaseBtn" class="secondary-btn">Sync now</button>
+            <button type="button" id="settingsSignOutBtn" class="secondary-btn">Sign out</button>
           </div>
         </div>
       </section>
@@ -396,10 +466,16 @@
 
     <script src="vendor/html2canvas.min.js"></script>
     <script src="vendor/jspdf.umd.min.js"></script>
+    <div id="appNotice" class="app-notice" hidden></div>
+
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-    <script src="db.js"></script>
-    <script src="firebase-sync.js"></script>
-    <script src="app.js"></script>
+    <script src="firebase-config.js?v=15"></script>
+    <script src="subscription.js?v=15"></script>
+    <script src="db.js?v=15"></script>
+    <script src="firebase-sync.js?v=15"></script>
+    <script src="account.js?v=15"></script>
+    <script src="app.js?v=18"></script>
   </body>
 </html>

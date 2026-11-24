@@ -1,7 +1,7 @@
 {
-  "name": "Receipt Manager",
-  "short_name": "Receipts",
-  "description": "Offline receipt manager for any business. Create, print, and share receipts.",
+  "name": "GITSYSTEM Receipt",
+  "short_name": "GITSYSTEM",
+  "description": "GITSYSTEM Receipt. Create, print, and share receipts for any business.",
   "start_url": "./",
   "scope": "./",
   "id": "./",
@@ -10,6 +10,11 @@
   "background_color": "#ffffff",
   "theme_color": "#0f172a",
   "icons": [
+    {
+      "src": "icons/favicon.ico",
+      "sizes": "16x16 32x32",
+      "type": "image/x-icon"
+    },
     {
       "src": "icons/icon-192.png",
       "sizes": "192x192",
@@ -23,7 +28,13 @@
       "purpose": "any"
     },
     {
-      "src": "icons/icon-512.png",
+      "src": "icons/icon-192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon-512-maskable.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
