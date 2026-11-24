@@ -308,7 +308,29 @@ async function connectFirebase(options = {}) {
 
 async function syncReceiptToCloud(receipt) {
   if (!firestoreDb || !firebaseSync.enabled || !receipt?.receiptNo) return;
-  await workspaceDoc().collection("receipts").doc(String(receipt.receiptNo)).set(stripReceiptForCloud(receipt));
+  const ref = workspaceDoc().collection("receipts").doc(String(receipt.receiptNo));
+  const payload = stripReceiptForCloud(receipt);
+  if ((window.currentPlan || "free") !== "free") {
+    await ref.set(payload);
+    return;
+  }
+  const usageRef = workspaceDoc().collection("meta").doc("usage");
+  await firestoreDb.runTransaction(async (tx) => {
+    const usageSnap = await tx.get(usageRef);
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    const stored = usageSnap.exists ? usageSnap.data() : {};
+    let ids = Array.isArray(stored.ids) ? stored.ids.map(String) : [];
+    if (stored.year !== year || stored.month !== month) ids = [];
+    const id = String(receipt.receiptNo);
+    if (!ids.includes(id)) {
+      if (ids.length >= 5) throw new Error("Free plan allows 5 receipts this month");
+      ids = ids.concat(id);
+    }
+    tx.set(usageRef, { year, month, ids });
+    tx.set(ref, payload);
+  });
 }
 
 async function deleteReceiptFromCloud(receiptNo) {
@@ -422,8 +444,12 @@ async function pushAllToCloud() {
   let pushed = 0;
   for (const receipt of receipts) {
     if (deletions[String(receipt.receiptNo)]) continue;
-    await syncReceiptToCloud(receipt);
-    pushed += 1;
+    try {
+      await syncReceiptToCloud(receipt);
+      pushed += 1;
+    } catch (error) {
+      console.warn("Skipped cloud receipt", receipt.receiptNo, error);
+    }
   }
   const savedEstates = JSON.parse(localStorage.getItem("estates") || "[]");
   await syncEstatesToCloud(savedEstates);

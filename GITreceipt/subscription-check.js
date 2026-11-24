@@ -3,6 +3,11 @@ const {
   extendPaidUntil,
   accountLabel,
   applySuccessfulPayment,
+  effectivePlan,
+  receiptLimit,
+  planCatalog,
+  planQuote,
+  countReceiptsInMonth,
 } = require("./subscription.js");
 
 let failed = 0;
@@ -18,7 +23,16 @@ const now = 1_000_000;
 check("pending cannot use the app", isAccessAllowed({ status: "pending" }, now), false);
 check("free can use the app", isAccessAllowed({ status: "free" }, now), true);
 check("subscriber can use the app before expiry", isAccessAllowed({ status: "subscriber", paidUntil: now + 10 }, now), true);
-check("expired subscriber is blocked", isAccessAllowed({ status: "subscriber", paidUntil: now - 1 }, now), false);
+check("expired subscriber keeps free access", isAccessAllowed({ status: "subscriber", paidUntil: now - 1 }, now), true);
+check("expired subscriber is on the free plan", effectivePlan({ status: "subscriber", paidUntil: now - 1, plan: "starter" }, now), "free");
+check("active subscriber keeps the paid plan", effectivePlan({ status: "subscriber", paidUntil: now + 10, plan: "professional" }, now), "professional");
+check("free plan stops at 5 receipts", receiptLimit("free"), 5);
+check("starter has no monthly cap", receiptLimit("starter") > 5, true);
+check("annual quote is the yearly price", planQuote(planCatalog(null), "starter", "annual").amount, 15000);
+check("counts receipts in the current month", countReceiptsInMonth([
+  { paymentDate: "2026-11-02" },
+  { paymentDate: "2026-10-02" },
+], Date.parse("2026-11-24T00:00:00Z")), 1);
 check("extends from the later of now and the current end", extendPaidUntil(now + 5000, now, 1), now + 5000 + 86400000);
 check("labels an expired subscriber", accountLabel({ status: "subscriber", paidUntil: now - 1 }, now), "Expired");
 

@@ -418,6 +418,12 @@ function registerEvents() {
         showNotice("Use a logo under 400 KB so it can be saved on this phone.");
         return;
       }
+      if (!canUsePaidTools(window.currentPlan || "free")) {
+        e.target.value = "";
+        showNotice("A logo is included from the Starter plan.");
+        showSection("subscribe");
+        return;
+      }
 
       const reader = new FileReader();
       reader.onload = function () {
@@ -743,9 +749,19 @@ function handleHistoryClick(e) {
 async function createReceipt(e) {
   e.preventDefault();
   if (window.accountLock) {
-    showNotice("Subscribe to create receipts.");
+    showNotice("Sign in to create receipts.");
     showSection(window.accountLock);
     return;
+  }
+  const plan = window.currentPlan || "free";
+  const limit = receiptLimit(plan);
+  if (limit !== Infinity) {
+    const used = countReceiptsInMonth(await getAllReceipts(), Date.now());
+    if (used >= limit) {
+      alert(`The Free plan includes ${limit} receipts each month. Upgrade to create another.`);
+      showSection("subscribe");
+      return;
+    }
   }
 
   const lineItems = getSelectedLineItems();
@@ -1465,6 +1481,7 @@ function showReceipt(r, containerId = "receiptPreview") {
         
         <div class="receipt-card-footer">
             ${footerMessageHtml}
+            ${canUsePaidTools(window.currentPlan || "free") ? `
             <div class="share-format-row">
               <label for="shareFormatSelect">Send as</label>
               <select id="shareFormatSelect" class="share-format-select">
@@ -1476,7 +1493,7 @@ function showReceipt(r, containerId = "receiptPreview") {
               <button type="button" class="share-btn whatsapp-btn">💬 WhatsApp</button>
               <button type="button" class="share-btn email-btn">✉️ Email</button>
               <button type="button" class="print-btn">🖨️ Print</button>
-            </div>
+            </div>` : `<p class="install-card-text">Print, PDF, and WhatsApp are included from the Starter plan.</p>`}
         </div>
     </div>
   `;
@@ -1529,6 +1546,23 @@ async function loadDashboard() {
 
   document.getElementById("totalReceipts").textContent = totalReceipts;
   document.getElementById("collectionsTotal").textContent = formatMoney(Math.max(0, totalAmount));
+  const summary = document.getElementById("planSummary");
+  const usage = document.getElementById("planUsage");
+  if (summary) {
+    const planId = window.currentPlan || "free";
+    const catalog = window.planCatalog || planCatalog(null);
+    const plan = catalog[planId] || catalog.free;
+    const active = window.currentAccount && paidPlanActive(window.currentAccount, Date.now());
+    summary.textContent = active
+      ? `${plan.name} · ${window.currentAccount.billingCycle || "monthly"} · renews ${new Date(Number(window.currentAccount.paidUntil)).toLocaleDateString()}`
+      : "Free · 5 receipts each calendar month";
+  }
+  if (usage) {
+    const used = countReceiptsInMonth(data, Date.now());
+    usage.textContent = (window.currentPlan || "free") === "free"
+      ? `${used} of 5 receipts used this month.`
+      : `${used} receipts this month. No monthly limit.`;
+  }
 
   loadEstatesOverview(visible);
 }
@@ -1806,6 +1840,8 @@ function showSection(sectionId) {
       togglePartPaymentFields();
     } else if (sectionId === "admin" && typeof loadAdmin === "function") {
       loadAdmin().catch((error) => alert(error.message));
+    } else if (sectionId === "subscribe" && typeof showSubscribe === "function") {
+      showSubscribe().catch((error) => alert(error.message));
     } else if (sectionId === "viewReceipt") {
       // If there is no content inside receipt preview, add empty state message
       const preview = document.getElementById("receiptPreview");

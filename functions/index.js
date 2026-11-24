@@ -3,7 +3,7 @@ const { defineSecret } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
 const { getAuth } = require("firebase-admin/auth");
-const { applySuccessfulPayment } = require("./subscription");
+const { applySuccessfulPayment, planCatalog, planQuote } = require("./subscription");
 
 initializeApp();
 
@@ -14,18 +14,11 @@ function db() {
   return getFirestore();
 }
 
-async function readPricing() {
-  const snap = await db().collection("config").doc("pricing").get();
-  if (!snap.exists) {
-    throw new Error("Set the subscription price on the admin page first");
-  }
-  const data = snap.data() || {};
-  const amount = Number(data.amount);
-  const periodDays = Number(data.periodDays);
-  if (!(amount >= 100) || !(periodDays >= 1)) {
-    throw new Error("Subscription price is incomplete");
-  }
-  return { amount, periodDays: Math.round(periodDays) };
+async function readQuote(planId, cycle) {
+  const snap = await db().collection("config").doc("plans").get();
+  const quote = planQuote(planCatalog(snap.exists ? snap.data() : null), planId, cycle);
+  if (!quote) throw new Error("Choose a paid plan");
+  return quote;
 }
 
 async function userFromRequest(req) {
@@ -74,7 +67,11 @@ async function grantPayment(reference, secret) {
       return;
     }
     const userSnap = await transaction.get(userRef);
-    const result = applySuccessfulPayment(userSnap.data() || {}, reference, payment.periodDays, Date.now());
+    const result = applySuccessfulPayment(userSnap.data() || {}, reference, payment.periodDays, Date.now(), {
+      planId: payment.planId,
+      cycle: payment.cycle,
+      amount: Number(payment.amountKobo) / 100,
+    });
     if (result.changed) transaction.set(userRef, result.account, { merge: true });
     transaction.set(paymentRef, { applied: true, appliedAt: Date.now() }, { merge: true });
   });
@@ -90,21 +87,23 @@ exports.createPayment = onRequest(httpOptions, async (req, res) => {
   }
   try {
     const user = await userFromRequest(req);
-    const pricing = await readPricing();
-    const amountKobo = Math.round(pricing.amount * 100);
+    const quote = await readQuote(req.body?.planId, req.body?.cycle);
+    const amountKobo = Math.round(quote.amount * 100);
     const callbackUrl = typeof req.body?.callbackUrl === "string" ? req.body.callbackUrl : "";
     const created = await paystack(PAYSTACK_SECRET.value(), "/transaction/initialize", "POST", {
       email: user.email,
       amount: amountKobo,
       currency: "NGN",
       callback_url: callbackUrl || undefined,
-      metadata: { uid: user.uid },
+      metadata: { uid: user.uid, planId: quote.planId, cycle: quote.cycle },
     });
     const reference = created.data.reference;
     await db().collection("payments").doc(reference).set({
       uid: user.uid,
       amountKobo,
-      periodDays: pricing.periodDays,
+      periodDays: quote.periodDays,
+      planId: quote.planId,
+      cycle: quote.cycle,
       createdAt: Date.now(),
       applied: false,
     });

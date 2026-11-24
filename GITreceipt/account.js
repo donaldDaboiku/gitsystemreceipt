@@ -50,17 +50,27 @@ async function ensureUserProfile(user) {
   if (snap.exists) return snap.data();
   const profile = {
     email: user.email,
-    status: "pending",
+    status: "free",
+    plan: "free",
     createdAt: Date.now(),
   };
   await ref.set(profile);
   return profile;
 }
 
-async function readPricing() {
-  const snap = await firestoreDb.collection("config").doc("pricing").get();
-  if (!snap.exists) return null;
-  return snap.data();
+async function loadPlanCatalog() {
+  try {
+    const snap = await firestoreDb.collection("config").doc("plans").get();
+    window.planCatalog = planCatalog(snap.exists ? snap.data() : null);
+  } catch (error) {
+    window.planCatalog = planCatalog(null);
+  }
+  return window.planCatalog;
+}
+
+function rememberPlan(account) {
+  window.currentAccount = account || null;
+  window.currentPlan = effectivePlan(account, Date.now());
 }
 
 function toggleAdminNav(show) {
@@ -78,7 +88,7 @@ function renderAccountSummary(user, account) {
     return;
   }
   const label = accountLabel(account, Date.now());
-  const until = account && account.status === "subscriber" && account.paidUntil
+  const until = account && paidPlanActive(account, Date.now())
     ? ` until ${new Date(Number(account.paidUntil)).toLocaleDateString()}`
     : "";
   el.textContent = `${user.email} · ${label}${until}`;
@@ -99,32 +109,33 @@ function renderRenewalBanner(account) {
   }
   banner.hidden = false;
   text.textContent = days > 0
-    ? `Your subscription ends in ${days} day${days === 1 ? "" : "s"}. Renew to keep cloud backup.`
-    : "Your subscription has ended. Renew to keep cloud backup.";
+    ? `Your ${accountLabel(account, Date.now())} plan ends in ${days} day${days === 1 ? "" : "s"}. Renew to keep unlimited receipts, PDF, and WhatsApp.`
+    : "Your paid plan has ended. You are on Free, with 5 receipts this month.";
 }
 
 async function showSubscribe() {
-  const priceEl = document.getElementById("subscribePrice");
-  const payBtn = document.getElementById("payBtn");
-  try {
-    const pricing = await readPricing();
-    if (!pricing) {
-      if (priceEl) priceEl.textContent = "The subscription price is not set yet. Contact the app owner.";
-      if (payBtn) payBtn.disabled = true;
-      return;
-    }
-    if (priceEl) {
-      priceEl.textContent = `${formatNaira(pricing.amount)} for ${pricing.periodDays} days. Paystack handles the card or transfer.`;
-    }
-    if (payBtn) payBtn.disabled = false;
-  } catch (error) {
-    if (priceEl) priceEl.textContent = "Could not load the price. Check your connection and try again.";
-    if (payBtn) payBtn.disabled = true;
-  }
+  const host = document.getElementById("planChoices");
+  const catalog = await loadPlanCatalog();
+  const cycle = window.billingCycle === "annual" ? "annual" : "monthly";
+  if (!host) return;
+  host.innerHTML = ["starter", "professional", "business"].map((id) => {
+    const plan = catalog[id];
+    const amount = cycle === "annual" ? plan.annual : plan.monthly;
+    const recommended = id === "professional" ? " recommended" : "";
+    return `<article class="plan-choice${recommended}">
+      <h3>${escapeHtml(plan.name)}${id === "professional" ? " · Recommended" : ""}</h3>
+      <p class="plan-price">${formatNaira(amount)}<span>/${cycle === "annual" ? "year" : "month"}</span></p>
+      <button type="button" class="choose-plan-btn" data-plan="${id}">Subscribe</button>
+    </article>`;
+  }).join("");
+  host.querySelectorAll(".choose-plan-btn").forEach((button) => {
+    button.addEventListener("click", () => startPaystack(button.getAttribute("data-plan")));
+  });
 }
 
 async function enterApp(account) {
   window.accountLock = null;
+  rememberPlan(account);
   renderRenewalBanner(account);
   showSection("dashboard");
   try {
@@ -143,6 +154,7 @@ async function refreshAccountGate() {
   if (!user) {
     window.accountLock = "auth";
     window.isAppAdmin = false;
+    rememberPlan(null);
     toggleAdminNav(false);
     renderAccountSummary(null, null);
     showSection("auth");
@@ -178,6 +190,7 @@ async function refreshAccountGate() {
   }
   window.isAppAdmin = isAdminEmail(user.email) || adminDoc;
   toggleAdminNav(window.isAppAdmin);
+  rememberPlan(account);
   renderAccountSummary(user, account);
   renderRenewalBanner(account);
 
@@ -268,18 +281,31 @@ async function onSignIn() {
   }
 }
 
-async function startPaystack() {
-  const payBtn = document.getElementById("payBtn");
-  if (payBtn) payBtn.disabled = true;
+async function startPaystack(planId) {
+  if (!firebaseProjectReady()) {
+    alert("This copy of the app is not connected to the cloud yet.");
+    return;
+  }
+  const catalog = window.planCatalog || planCatalog(null);
+  const cycle = window.billingCycle === "annual" ? "annual" : "monthly";
+  const requested = planId && planId !== "free" ? planId : (window.currentAccount && window.currentAccount.plan) || "professional";
+  const quote = planQuote(catalog, requested === "free" ? "professional" : requested, cycle);
+  if (!quote) {
+    alert("Choose Starter, Professional, or Business.");
+    return;
+  }
+  const planName = catalog[quote.planId] ? catalog[quote.planId].name : quote.planId;
+  if (!confirm(`Pay ${formatNaira(quote.amount)} for ${planName} (${quote.cycle})?`)) return;
   try {
     const data = await callFunction("createPayment", {
+      planId: quote.planId,
+      cycle: quote.cycle,
       callbackUrl: location.origin + location.pathname,
     });
     if (!data.authorization_url) throw new Error("Paystack did not return a payment link");
     location.href = data.authorization_url;
   } catch (error) {
     alert(error.message || "Payment could not start. Deploy the Paystack function and set PAYSTACK_SECRET.");
-    if (payBtn) payBtn.disabled = false;
   }
 }
 
@@ -288,34 +314,52 @@ async function signOutAndLock() {
   localStorage.removeItem(ACCESS_CACHE_KEY);
   window.accountLock = "auth";
   window.isAppAdmin = false;
+  rememberPlan(null);
   toggleAdminNav(false);
   renderAccountSummary(null, null);
   showSection("auth");
 }
 
 async function savePrice() {
-  const amount = Number(document.getElementById("priceAmount").value);
-  const periodDays = Number(document.getElementById("priceDays").value);
+  const plans = {
+    starter: {
+      monthly: Number(document.getElementById("starterMonthly").value),
+      annual: Number(document.getElementById("starterAnnual").value),
+    },
+    professional: {
+      monthly: Number(document.getElementById("professionalMonthly").value),
+      annual: Number(document.getElementById("professionalAnnual").value),
+    },
+    business: {
+      monthly: Number(document.getElementById("businessMonthly").value),
+      annual: Number(document.getElementById("businessAnnual").value),
+    },
+  };
   const status = document.getElementById("priceStatus");
-  if (!(amount >= 100) || !(periodDays >= 1) || periodDays > 366) {
-    if (status) status.textContent = "Use at least ₦100 and 1 to 366 days.";
+  const amounts = Object.values(plans).flatMap((plan) => [plan.monthly, plan.annual]);
+  if (amounts.some((amount) => !(amount >= 100))) {
+    if (status) status.textContent = "Each paid price must be at least ₦100.";
     return;
   }
-  await firestoreDb.collection("config").doc("pricing").set({
-    amount,
-    periodDays: Math.round(periodDays),
-    currency: "NGN",
-    updatedAt: Date.now(),
-  });
-  if (status) status.textContent = `Price saved: ${formatNaira(amount)} for ${Math.round(periodDays)} days.`;
+  await firestoreDb.collection("config").doc("plans").set({ plans, updatedAt: Date.now() });
+  window.planCatalog = planCatalog({ plans });
+  if (status) status.textContent = "Prices saved.";
 }
 
 async function loadAdmin() {
-  const pricing = await readPricing();
-  const amountEl = document.getElementById("priceAmount");
-  const daysEl = document.getElementById("priceDays");
-  if (amountEl && pricing) amountEl.value = pricing.amount;
-  if (daysEl) daysEl.value = pricing ? pricing.periodDays : 30;
+  const catalog = await loadPlanCatalog();
+  const fields = {
+    starterMonthly: catalog.starter.monthly,
+    starterAnnual: catalog.starter.annual,
+    professionalMonthly: catalog.professional.monthly,
+    professionalAnnual: catalog.professional.annual,
+    businessMonthly: catalog.business.monthly,
+    businessAnnual: catalog.business.annual,
+  };
+  Object.keys(fields).forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.value = fields[id];
+  });
   const snap = await firestoreDb.collection("users").get();
   const clients = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
   clients.sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
@@ -351,6 +395,13 @@ function openClientReview(client) {
     `${accountLabel(client, now)} · joined ${client.createdAt ? new Date(Number(client.createdAt)).toLocaleDateString() : "unknown"}` +
     (client.paidUntil ? ` · paid until ${new Date(Number(client.paidUntil)).toLocaleDateString()}` : "");
   document.getElementById("reviewNote").value = client.reviewNote || "";
+  const history = Array.isArray(client.paymentHistory) ? client.paymentHistory : [];
+  const payments = document.getElementById("reviewPayments");
+  if (payments) {
+    payments.textContent = history.length
+      ? history.slice().reverse().map((payment) => `${formatNaira(payment.amount)} · ${payment.planId || "plan"} · ${payment.cycle || ""}`).join("\n")
+      : "No Paystack payments recorded on this account.";
+  }
 }
 
 async function updateReviewedClient(status) {
@@ -360,18 +411,23 @@ async function updateReviewedClient(status) {
   const ref = firestoreDb.collection("users").doc(uid);
   const snap = await ref.get();
   const current = snap.data() || {};
-  const pricing = await readPricing();
+  const pricingDays = 30;
   const patch = {
     status,
     reviewNote: document.getElementById("reviewNote").value.trim(),
     reviewedAt: Date.now(),
   };
   if (status === "subscriber") {
-    patch.paidUntil = extendPaidUntil(current.paidUntil, Date.now(), pricing ? pricing.periodDays : 30);
+    patch.plan = document.getElementById("grantPlan")?.value || "professional";
+    patch.billingCycle = "monthly";
+    patch.paidUntil = extendPaidUntil(current.paidUntil, Date.now(), pricingDays);
   }
-  if (status === "free" || status === "pending") patch.paidUntil = 0;
+  if (status === "free" || status === "pending" || status === "suspended") {
+    patch.paidUntil = 0;
+    if (status === "free") patch.plan = "free";
+  }
   await ref.update(patch);
-  showNotice(status === "free" ? "Client is free" : status === "subscriber" ? "Subscription granted" : "Client set to pending");
+  showNotice(status === "free" ? "Client is on Free" : status === "subscriber" ? "Subscription granted" : status === "suspended" ? "Client suspended" : "Client set to pending");
   await loadAdmin();
   const updated = (await ref.get()).data();
   openClientReview({ id: uid, ...updated });
@@ -382,10 +438,22 @@ function bindAccountEvents() {
   bindAccountEvents.done = true;
   document.getElementById("registerBtn")?.addEventListener("click", onRegister);
   document.getElementById("signInBtn")?.addEventListener("click", onSignIn);
-  document.getElementById("payBtn")?.addEventListener("click", startPaystack);
-  document.getElementById("renewBannerBtn")?.addEventListener("click", startPaystack);
-  document.getElementById("settingsRenewBtn")?.addEventListener("click", startPaystack);
+  document.getElementById("cycleMonthly")?.addEventListener("click", () => {
+    window.billingCycle = "monthly";
+    document.getElementById("cycleMonthly")?.classList.add("active");
+    document.getElementById("cycleAnnual")?.classList.remove("active");
+    showSubscribe().catch((error) => alert(error.message));
+  });
+  document.getElementById("cycleAnnual")?.addEventListener("click", () => {
+    window.billingCycle = "annual";
+    document.getElementById("cycleAnnual")?.classList.add("active");
+    document.getElementById("cycleMonthly")?.classList.remove("active");
+    showSubscribe().catch((error) => alert(error.message));
+  });
+  document.getElementById("upgradePlanBtn")?.addEventListener("click", () => showSection("subscribe"));
   document.getElementById("openAdminBtn")?.addEventListener("click", () => showSection("admin"));
+  document.getElementById("renewBannerBtn")?.addEventListener("click", () => startPaystack());
+  document.getElementById("settingsRenewBtn")?.addEventListener("click", () => startPaystack());
   document.getElementById("accountSignOutBtn")?.addEventListener("click", signOutAndLock);
   document.getElementById("settingsSignOutBtn")?.addEventListener("click", signOutAndLock);
   document.getElementById("savePriceBtn")?.addEventListener("click", () => {
@@ -396,6 +464,9 @@ function bindAccountEvents() {
   });
   document.getElementById("grantSubBtn")?.addEventListener("click", () => {
     updateReviewedClient("subscriber").catch((error) => alert(error.message));
+  });
+  document.getElementById("suspendBtn")?.addEventListener("click", () => {
+    updateReviewedClient("suspended").catch((error) => alert(error.message));
   });
   document.getElementById("revokeBtn")?.addEventListener("click", () => {
     updateReviewedClient("pending").catch((error) => alert(error.message));

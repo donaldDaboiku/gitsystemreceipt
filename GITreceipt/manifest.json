@@ -2,7 +2,7 @@
   "name": "GITSYSTEM Receipt",
   "short_name": "GITSYSTEM",
   "description": "GITSYSTEM Receipt. Create, print, and share receipts for any business.",
-  "start_url": "./",
+  "start_url": "./app.html",
   "scope": "./",
   "id": "./",
   "display": "standalone",

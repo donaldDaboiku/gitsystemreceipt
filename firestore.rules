@@ -20,11 +20,52 @@ service cloud.firestore {
     function isActive() {
       return account().exists && (
         account().data.status == "free"
-        || (
-          account().data.status == "subscriber"
-          && account().data.paidUntil > request.time.toMillis()
-        )
+        || account().data.status == "subscriber"
       );
+    }
+
+    function paidNow() {
+      return account().data.status == "subscriber"
+        && account().data.paidUntil > request.time.toMillis();
+    }
+
+    function usageDoc(userId) {
+      return get(/databases/$(database)/documents/workspaces/$(userId)/meta/usage);
+    }
+
+    function receiptAllowed(userId, receiptId) {
+      return paidNow() || (
+        usageDoc(userId).data.year == request.time.year()
+        && usageDoc(userId).data.month == request.time.month()
+        && receiptId in usageDoc(userId).data.ids
+        && usageDoc(userId).data.ids.size() <= 5
+      );
+    }
+
+    function validUsageCreate(userId) {
+      return !exists(/databases/$(database)/documents/workspaces/$(userId)/meta/usage)
+        && request.resource.data.year == request.time.year()
+        && request.resource.data.month == request.time.month()
+        && request.resource.data.ids is list
+        && request.resource.data.ids.size() >= 1
+        && request.resource.data.ids.size() <= 5;
+    }
+
+    function validUsageUpdate() {
+      return request.resource.data.year == request.time.year()
+        && request.resource.data.month == request.time.month()
+        && request.resource.data.ids is list
+        && request.resource.data.ids.size() <= 5
+        && (
+          resource.data.year != request.time.year()
+          || resource.data.month != request.time.month()
+          || request.resource.data.ids.hasAll(resource.data.ids)
+        );
+    }
+
+    function planPriceOk(plan) {
+      return plan.monthly is number && plan.monthly >= 100
+        && plan.annual is number && plan.annual >= 100;
     }
 
     match /users/{userId} {
@@ -33,13 +74,14 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.auth.uid == userId
         && request.resource.data.email == request.auth.token.email
-        && request.resource.data.status == "pending"
+        && request.resource.data.status == "free"
+        && request.resource.data.plan == "free"
         && request.resource.data.createdAt is int
-        && request.resource.data.keys().hasOnly(["email", "status", "createdAt"]);
+        && request.resource.data.keys().hasOnly(["email", "status", "plan", "createdAt"]);
       allow update: if isAdmin()
         && request.resource.data.email == resource.data.email
         && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.status in ["pending", "free", "subscriber"];
+        && request.resource.data.status in ["pending", "free", "subscriber", "suspended", "cancelled"];
       allow delete: if false;
     }
 
@@ -54,6 +96,15 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /config/plans {
+      allow read: if signedIn();
+      allow create, update: if isAdmin()
+        && planPriceOk(request.resource.data.plans.starter)
+        && planPriceOk(request.resource.data.plans.professional)
+        && planPriceOk(request.resource.data.plans.business);
+      allow delete: if false;
+    }
+
     match /payments/{reference} {
       allow read, write: if false;
     }
@@ -64,7 +115,24 @@ service cloud.firestore {
     }
 
     match /workspaces/{userId}/{document=**} {
-      allow read, write: if signedIn() && request.auth.uid == userId && isActive();
+      allow read: if signedIn() && request.auth.uid == userId && isActive();
+    }
+
+    match /workspaces/{userId}/meta/{docId} {
+      allow create: if signedIn() && request.auth.uid == userId && isActive()
+        && (docId != "usage" || validUsageCreate(userId));
+      allow update: if signedIn() && request.auth.uid == userId && isActive()
+        && (docId != "usage" || validUsageUpdate());
+    }
+
+    match /workspaces/{userId}/receipts/{receiptId} {
+      allow create: if signedIn() && request.auth.uid == userId && isActive()
+        && receiptAllowed(userId, receiptId);
+      allow update, delete: if signedIn() && request.auth.uid == userId && isActive();
+    }
+
+    match /workspaces/{userId}/deletions/{receiptId} {
+      allow write: if signedIn() && request.auth.uid == userId && isActive();
     }
   }
 }
