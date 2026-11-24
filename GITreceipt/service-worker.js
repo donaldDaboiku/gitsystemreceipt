@@ -1,13 +1,13 @@
-const CACHE = "receipt-v19";
+const CACHE = "receipt-v20";
 
 const FILES = [
   "./",
   "./index.html",
-  "./style.css?v=18",
+  "./style.css?v=20",
   "./firebase-config.js?v=19",
   "./subscription.js?v=15",
-  "./account.js?v=15",
-  "./app.js?v=18",
+  "./account.js?v=20",
+  "./app.js?v=20",
   "./db.js?v=15",
   "./firebase-sync.js?v=15",
   "./manifest.json",

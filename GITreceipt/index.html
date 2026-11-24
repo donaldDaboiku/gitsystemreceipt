@@ -16,10 +16,10 @@
     <link rel="icon" href="icons/favicon.ico" sizes="any" />
     <link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="style.css?v=18" />
+    <link rel="stylesheet" href="style.css?v=20" />
   </head>
 
-  <body>
+  <body class="gate">
     <header>
       <button type="button" class="hamburger" id="hamburgerBtn" aria-label="Open menu" aria-expanded="false">
         <span></span>
@@ -92,6 +92,7 @@
           <h2>Subscribe</h2>
           <p id="subscribePrice" class="install-card-text">Loading the current price…</p>
           <button type="button" id="payBtn">Pay with Paystack</button>
+          <button type="button" id="openAdminBtn" class="secondary-btn" hidden>Admin</button>
           <button type="button" id="accountSignOutBtn" class="secondary-btn">Sign out</button>
         </section>
       </section>
@@ -475,7 +476,7 @@
     <script src="subscription.js?v=15"></script>
     <script src="db.js?v=15"></script>
     <script src="firebase-sync.js?v=15"></script>
-    <script src="account.js?v=15"></script>
-    <script src="app.js?v=18"></script>
+    <script src="account.js?v=20"></script>
+    <script src="app.js?v=20"></script>
   </body>
 </html>

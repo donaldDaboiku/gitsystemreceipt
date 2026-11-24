@@ -66,6 +66,8 @@ async function readPricing() {
 function toggleAdminNav(show) {
   const link = document.getElementById("adminNav");
   if (link) link.hidden = !show;
+  const openBtn = document.getElementById("openAdminBtn");
+  if (openBtn) openBtn.hidden = !show;
 }
 
 function renderAccountSummary(user, account) {
@@ -383,6 +385,7 @@ function bindAccountEvents() {
   document.getElementById("payBtn")?.addEventListener("click", startPaystack);
   document.getElementById("renewBannerBtn")?.addEventListener("click", startPaystack);
   document.getElementById("settingsRenewBtn")?.addEventListener("click", startPaystack);
+  document.getElementById("openAdminBtn")?.addEventListener("click", () => showSection("admin"));
   document.getElementById("accountSignOutBtn")?.addEventListener("click", signOutAndLock);
   document.getElementById("settingsSignOutBtn")?.addEventListener("click", signOutAndLock);
   document.getElementById("savePriceBtn")?.addEventListener("click", () => {

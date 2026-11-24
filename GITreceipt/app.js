@@ -1758,6 +1758,15 @@ function showSection(sectionId) {
     sectionId = "dashboard";
   }
 
+  const locked = window.accountLock === "auth" || window.accountLock === "subscribe";
+  document.body.classList.toggle("gate", locked);
+  if (locked) {
+    document.getElementById("sidebar")?.classList.remove("active");
+    document.getElementById("sidebarBackdrop")?.classList.remove("active");
+    document.getElementById("hamburgerBtn")?.classList.remove("active");
+    document.body.classList.remove("menu-open");
+  }
+
   // Hide all sections
   const sections = document.querySelectorAll(".page-section");
   sections.forEach((section) => {
