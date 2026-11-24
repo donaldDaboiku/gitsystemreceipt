@@ -1,6 +1,5 @@
 rules_version = '2';
-// Change owner@example.com to your lowercase admin email.
-// It must match APP_ADMIN_EMAIL in GITreceipt/firebase-config.js.
+// Admin email must match APP_ADMIN_EMAIL in GITreceipt/firebase-config.js.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
@@ -9,7 +8,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return signedIn() && (
-        request.auth.token.email == "owner@example.com"
+        request.auth.token.email == "gitsystemng@gmail.com"
         || exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }

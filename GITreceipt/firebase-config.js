@@ -1,15 +1,16 @@
-// One Firebase project for every client. Fill this in before you ship the app.
-// adminEmail must be lowercase and must match isAdmin() in ../firestore.rules.
+// One Firebase project for every client.
+// APP_ADMIN_EMAIL must be lowercase and must match isAdmin() in ../firestore.rules.
 const FIREBASE_CONFIG = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: "",
+  apiKey: "AIzaSyBOxTmB-__8uMc7If1CJMw1AeDooYiTI9A",
+  authDomain: "gitsystemreceipt.firebaseapp.com",
+  projectId: "gitsystemreceipt",
+  storageBucket: "gitsystemreceipt.firebasestorage.app",
+  messagingSenderId: "443676222911",
+  appId: "1:443676222911:web:05d1122de579f347922d0a",
+  measurementId: "G-7TWJJM36P5",
 };
 
-const APP_ADMIN_EMAIL = "owner@example.com";
+const APP_ADMIN_EMAIL = "gitsystemng@gmail.com";
 const FUNCTION_REGION = "us-central1";
 
 function firebaseProjectReady() {
